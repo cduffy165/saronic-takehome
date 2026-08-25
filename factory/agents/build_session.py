@@ -51,13 +51,28 @@ def _make_path_guard(app_dir: Path):
     return guard
 
 
-def _build_prompt(plan: dict[str, Any], feedback: str | None) -> str:
+def _build_prompt(plan: dict[str, Any], feedback: str | None, *, is_pickup: bool) -> str:
     capabilities = "\n".join(f"- {c['slug']}: {c['description']}" for c in plan["capabilities"])
     feedback_block = (
         f"\n\nA previous attempt failed review with these findings — fix them:\n{feedback}\n"
         if feedback
         else ""
     )
+
+    if is_pickup:
+        return f"""The current directory already contains a small Streamlit app's source —
+read its files first. Add this new capability without removing or breaking
+any existing functionality:
+
+{capabilities}
+
+Change note: {plan["purpose"]}
+
+Keep the same conventions and state approach already used in the app (in-memory
+or local SQLite — no external services, no real credentials, only placeholder
+values if new config is needed). Update README.md to mention the addition.
+Update requirements.txt only if a new dependency is genuinely needed.{feedback_block}"""
+
     return f"""Write a small internal Streamlit app in the current directory implementing:
 
 Name: {plan["name"]}
@@ -80,7 +95,7 @@ not a production system.{feedback_block}"""
 
 
 async def run_build_turn(
-    *, app_dir: Path, plan: dict[str, Any], feedback: str | None = None
+    *, app_dir: Path, plan: dict[str, Any], feedback: str | None = None, is_pickup: bool = False
 ) -> BuildTurnResult:
     settings = get_build_settings()
 
@@ -100,7 +115,7 @@ async def run_build_turn(
 
     model_usage: dict[str, Any] = {}
     async with ClaudeSDKClient(options) as client:
-        await client.query(_build_prompt(plan, feedback))
+        await client.query(_build_prompt(plan, feedback, is_pickup=is_pickup))
         async for message in client.receive_response():
             if isinstance(message, ResultMessage):
                 model_usage = message.model_usage or {}

@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from factory.ui import plan_page, registry_page
+from factory.ui import feature_requests_page, plan_page, registry_page
 
 st.set_page_config(page_title="App Factory", layout="wide")
 st.title("App Factory")
@@ -17,9 +17,13 @@ with st.sidebar:
         f"Signed in as **{st.user.get('preferred_username', st.user.get('name', 'unknown'))}**"
     )
     st.button("Log out", on_click=st.logout)
-    page = st.radio("View", ["Request an App", "Registry"])
+    # key="page" binds the radio to session_state.page — feature_requests_page
+    # sets it directly (then reruns) to hand off into the Plan chat after pickup.
+    page = st.radio("View", ["Request an App", "Registry", "Feature Requests"], key="page")
 
 if page == "Request an App":
     plan_page.render(access_token=st.user.tokens.access)
-else:
+elif page == "Registry":
     registry_page.render(current_user_sub=st.user.sub)
+else:
+    feature_requests_page.render(access_token=st.user.tokens.access)

@@ -124,6 +124,11 @@ class Run(Base):
     """For ``build_review`` runs: the allocated host port, once the container is running."""
     build_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
     """Gate 2: set when a human approves a successful build for registration."""
+    feature_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("feature_requests.id", ondelete="SET NULL"), default=None
+    )
+    """For ``plan`` runs started via feature-request pickup (M7): which request
+    this run is fulfilling — an app can have more than one open request."""
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App | None] = relationship(back_populates="runs", foreign_keys=[app_id])

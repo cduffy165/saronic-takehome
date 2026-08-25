@@ -77,7 +77,26 @@ def _render_registry_digest(session: Any) -> str:
     return "\n".join(lines)
 
 
-def _build_system_prompt(blueprint: Blueprint, registry_digest: str) -> str:
+def _render_pickup_context(target_app: Any) -> str:
+    capabilities = (
+        ", ".join(f"{c.slug} ({c.description})" for c in target_app.capabilities) or "none listed"
+    )
+    return f"""This is a feature-request pickup, not a new app: the owner is fulfilling a
+change already requested against an app that exists in the registry.
+
+- {target_app.slug} — {target_app.name}: {target_app.purpose}
+- Existing capabilities: {capabilities}
+
+Scope your questions and your eventual {SUBMIT_PLAN_PROCEED_TOOL} call to ONLY the new
+capability being added — set ``capabilities`` to just the new one(s), not a restatement
+of the existing list, and set ``name``/``purpose`` to describe the change itself. If the
+requested change is too large for the blueprint's scope even as an addition, use
+{SUBMIT_PLAN_ROUTE_TO_HUMAN_TOOL} instead. {SUBMIT_PLAN_FEATURE_REQUEST_TOOL} does not
+apply here — this session exists because that step already happened."""
+
+
+def _build_system_prompt(blueprint: Blueprint, registry_digest: str, target_app: Any = None) -> str:
+    pickup_block = f"\n\n{_render_pickup_context(target_app)}" if target_app is not None else ""
     return f"""You are the Plan stage of an internal app factory. A business user is
 requesting a small internal app. Gather enough detail to reach one of three
 outcomes, then finish by calling exactly one of these tools:
@@ -109,7 +128,7 @@ brief; this is a business user, not an engineer.
 
 {render_scale_for_prompt(blueprint)}
 
-{registry_digest}
+{registry_digest}{pickup_block}
 """
 
 
@@ -198,7 +217,12 @@ def _capture(
 
 
 async def run_planner_turn(
-    *, session_id: str, is_first_turn: bool, user_message: str, blueprint: Blueprint
+    *,
+    session_id: str,
+    is_first_turn: bool,
+    user_message: str,
+    blueprint: Blueprint,
+    target_app: Any = None,
 ) -> PlannerTurnResult:
     settings = get_planner_settings()
     session_factory = get_session_factory()
@@ -218,7 +242,7 @@ async def run_planner_turn(
     ]
 
     options = ClaudeAgentOptions(
-        system_prompt=_build_system_prompt(blueprint, registry_digest),
+        system_prompt=_build_system_prompt(blueprint, registry_digest, target_app),
         tools=[],
         mcp_servers={SERVER_NAME: server},
         allowed_tools=qualified_tools,

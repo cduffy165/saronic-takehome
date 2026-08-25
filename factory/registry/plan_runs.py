@@ -9,12 +9,22 @@ from sqlalchemy.orm import Session
 from factory.registry.models import CostEvent, Run
 
 
-def create_plan_run(session: Session, requester_sub: str) -> Run:
+def create_plan_run(
+    session: Session,
+    requester_sub: str,
+    *,
+    target_app_id: uuid.UUID | None = None,
+    feature_request_id: uuid.UUID | None = None,
+) -> Run:
+    """``target_app_id`` marks a feature-request pickup (M7): Build/Review then
+    modify that app's existing repo instead of writing a fresh one."""
     run = Run(
         kind="plan",
         requester_sub=requester_sub,
         turns_used=0,
         plan={"transcript": [], "result": None},
+        app_id=target_app_id,
+        feature_request_id=feature_request_id,
     )
     session.add(run)
     session.commit()

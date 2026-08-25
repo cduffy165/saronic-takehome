@@ -9,7 +9,7 @@ from factory.agents.blueprint import load_blueprint
 from factory.agents.plan_schema import IncompleteOutcome
 from factory.agents.plan_session import run_planner_turn
 from factory.agents.planner_settings import get_planner_settings
-from factory.registry.models import FeatureRequest, Run
+from factory.registry.models import App, FeatureRequest, Run
 from factory.registry.plan_runs import (
     append_turn,
     create_plan_run,
@@ -30,8 +30,20 @@ class PlanTurnView(BaseModel):
     turns_used: int
 
 
-async def start_plan(session: Session, requester_sub: str, message: str) -> PlanTurnView:
-    run = create_plan_run(session, requester_sub)
+async def start_plan(
+    session: Session,
+    requester_sub: str,
+    message: str,
+    *,
+    target_app_id: uuid.UUID | None = None,
+    feature_request_id: uuid.UUID | None = None,
+) -> PlanTurnView:
+    run = create_plan_run(
+        session,
+        requester_sub,
+        target_app_id=target_app_id,
+        feature_request_id=feature_request_id,
+    )
     return await _advance(session, run, message, is_first_turn=True)
 
 
@@ -46,12 +58,14 @@ async def _advance(
 ) -> PlanTurnView:
     settings = get_planner_settings()
     blueprint = load_blueprint(PLANNER_BLUEPRINT_ID)
+    target_app = session.get(App, run.app_id) if run.app_id else None
 
     result = await run_planner_turn(
         session_id=str(run.id),
         is_first_turn=is_first_turn,
         user_message=message,
         blueprint=blueprint,
+        target_app=target_app,
     )
     append_turn(session, run, message, result.reply_text)
     if result.model_usage:
@@ -97,7 +111,12 @@ def _validated_owner_sub(app, owner_sub: str) -> str:
 
 def _finalize(session: Session, run: Run, outcome: dict, reply_text: str) -> PlanTurnView:
     kind = outcome["outcome"]
-    app_id = None
+    # Preserve run.app_id by default: for a feature-request pickup (M7), it was
+    # already set to the target app at creation, and a "proceed" outcome here
+    # must not clobber that back to None. The branches below only override it
+    # for outcomes that resolve a *different* app lookup (route_to_human,
+    # feature_request).
+    app_id = run.app_id
 
     if kind == "route_to_human" and outcome.get("overlapping_app_slug"):
         app = get_app_by_slug(session, outcome["overlapping_app_slug"])

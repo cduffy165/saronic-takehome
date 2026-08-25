@@ -8,13 +8,16 @@ Generated apps are deliberately small — this is a POC.
 
 ## Status
 
-Through M6: the full lifecycle now runs end to end. FastAPI orchestration API, Streamlit UI,
-Postgres registry, Keycloak-backed identity, the Plan stage (interactive session ending in
-`proceed` / `route_to_human` / `feature_request`), Build + Review (Gate 1 approval builds a
-small Streamlit app, gated by required-files + gitleaks before Review, then `git commit` and a
-running Docker container only after a pass), and Register (Gate 2 approval — plain code, no LLM
-— creates the `App` row, its owner, its capabilities, and backfills accumulated cost onto it).
-See the plan for the milestone sequence (M7 — feature request pickup — is next).
+Through M7. FastAPI orchestration API, Streamlit UI, Postgres registry, Keycloak-backed
+identity, the Plan stage (interactive session ending in `proceed` / `route_to_human` /
+`feature_request`), Build + Review (Gate 1 approval builds a small Streamlit app, gated by
+required-files + gitleaks before Review, then `git commit` and a running Docker container only
+after a pass), Register (Gate 2 approval — plain code, no LLM — creates the `App` row, its
+owner, its capabilities, and backfills accumulated cost onto it), and feature-request pickup: an
+app owner can pick up a request filed against their app, running Plan pre-seeded with the
+request, then Build/Review modifying the *existing* repo instead of a fresh one, then Gate 2
+appending the new capability instead of creating a new app. See the plan for the milestone
+sequence (M8 — seed capture — is next).
 
 ## Running
 
@@ -123,6 +126,35 @@ capability, and backfills `app_id` onto the plan run, the build/review run, and 
 `CostEvent` rows — which is what makes "cost accumulated across runs" on the registry page
 reflect the real per-stage spend instead of nothing. `factory/registry/slug.py` holds `slugify`
 so Build's directory name and the registered `App.slug` always agree.
+
+## Feature request pickup
+
+An app owner sees open requests against apps they own at `GET /feature-requests` (the "Feature
+Requests" view in the UI). Picking one up (`POST /feature-requests/{id}/pickup`) starts a normal
+Plan session seeded with the request's description, but with `Run.app_id` set to the target app
+at creation — the only signal needed: a `proceed` outcome on a plan run whose `app_id` was
+already set (not resolved by the outcome itself) means "modify this existing app," not "build a
+new one." The same signal branches Build (writes into the existing `repo_path` instead of a
+fresh directory; retries discard a failed attempt via `git checkout`/`clean`, never `rm -rf`,
+since that would destroy the app being modified) and Register (`register_feature` appends
+capabilities and resolves the `FeatureRequest` instead of creating a new `App`).
+
+Two real bugs here, both found by running the actual two-user walkthrough, not by review:
+- The existing app's directory is host-owned from its prior registration, but git runs as root
+  throughout Build/Review — the same dubious-ownership wall M5 hit on `git init`, except this
+  time hit immediately rather than only at commit time, since a pickup's directory doesn't start
+  root-owned via `mkdir` the way a fresh build's does. Fixed by chowning back to root for the
+  duration of a pickup run, host-owned again only at its return points.
+- The per-attempt "chown to host for inspectability" on a failed attempt is safe for a fresh
+  build (the next attempt's `rm -rf` + `mkdir` resets ownership regardless) but re-triggers the
+  same wall on a pickup retry, since `git checkout`/`clean` operates on that same, now
+  host-owned, directory. Pickup skips those per-attempt chowns and only hands ownership back at
+  a return point.
+
+Known gap, not yet fixed: if `run_build_and_review` fails *after* `approve_plan` has already
+committed (as happened live while chasing the bug above), the plan is left "approved but never
+built" with no route back through the API — `plan_approved_at` blocks a retry of the same
+endpoint. Needs either an idempotent approve or an explicit re-run path.
 
 ## Evals
 

@@ -11,9 +11,15 @@ from factory.agents.build_review_orchestrator import BuildReviewView, run_build_
 from factory.agents.plan_orchestrator import PlanTurnView, continue_plan, start_plan
 from factory.api.auth import get_verified_sub
 from factory.registry.db import get_session
-from factory.registry.models import Run
+from factory.registry.models import App, FeatureRequest, Run
 from factory.registry.plan_runs import approve_plan, get_plan_run
-from factory.registry.register import approve_build, register_app
+from factory.registry.queries import find_open_feature_requests_for_owner
+from factory.registry.register import (
+    approve_build,
+    mark_feature_request_picked_up,
+    register_app,
+    register_feature,
+)
 
 app = FastAPI(title="app-factory-api")
 
@@ -132,9 +138,71 @@ def approve_build_endpoint(
 
     if build_review_run.outcome != "success":
         raise HTTPException(status_code=409, detail="Only a successful build can be registered.")
-    if build_review_run.app_id is not None:
+    if build_review_run.build_approved_at is not None:
         raise HTTPException(status_code=409, detail="This build was already registered.")
 
     approve_build(session, build_review_run)
-    app_row = register_app(session, plan_run, build_review_run)
+
+    if build_review_run.app_id is not None:
+        # Feature-request pickup (M7): app_id was set at plan creation, not by
+        # a prior registration — append to the existing app instead of
+        # creating a new one.
+        existing_app = session.get(App, build_review_run.app_id)
+        app_row = register_feature(session, plan_run, build_review_run, existing_app)
+    else:
+        app_row = register_app(session, plan_run, build_review_run)
     return RegisterView(app_id=app_row.id, slug=app_row.slug, name=app_row.name)
+
+
+class FeatureRequestView(BaseModel):
+    id: uuid.UUID
+    app_id: uuid.UUID
+    app_slug: str
+    requester_sub: str
+    description: str
+    status: str
+
+
+@app.get("/feature-requests", response_model=list[FeatureRequestView])
+def list_feature_requests(
+    session: Annotated[Session, Depends(get_session)],
+    verified_sub: Annotated[str, Depends(get_verified_sub)],
+) -> list[FeatureRequestView]:
+    requests = find_open_feature_requests_for_owner(session, verified_sub)
+    return [
+        FeatureRequestView(
+            id=fr.id,
+            app_id=fr.app_id,
+            app_slug=fr.app.slug,
+            requester_sub=fr.requester_sub,
+            description=fr.description,
+            status=fr.status,
+        )
+        for fr in requests
+    ]
+
+
+@app.post("/feature-requests/{request_id}/pickup", response_model=PlanTurnView)
+async def pickup_feature_request(
+    request_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    verified_sub: Annotated[str, Depends(get_verified_sub)],
+) -> PlanTurnView:
+    feature_request = session.get(FeatureRequest, request_id)
+    if feature_request is None:
+        raise HTTPException(status_code=404, detail="No such feature request.")
+    if verified_sub not in {o.keycloak_sub for o in feature_request.app.owners}:
+        raise HTTPException(
+            status_code=403, detail="Only an owner of the target app can pick this up."
+        )
+    if feature_request.status == "resolved":
+        raise HTTPException(status_code=409, detail="This request was already resolved.")
+
+    mark_feature_request_picked_up(session, feature_request)
+    return await start_plan(
+        session,
+        verified_sub,
+        feature_request.description,
+        target_app_id=feature_request.app_id,
+        feature_request_id=feature_request.id,
+    )

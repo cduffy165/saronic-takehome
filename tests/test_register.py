@@ -1,8 +1,13 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from factory.registry.models import App, CostEvent, Run
-from factory.registry.register import approve_build, register_app
+from factory.registry.models import App, CostEvent, FeatureRequest, Run
+from factory.registry.register import (
+    approve_build,
+    mark_feature_request_picked_up,
+    register_app,
+    register_feature,
+)
 
 REQUESTER_SUB = "11111111-1111-1111-1111-111111111111"
 
@@ -118,3 +123,110 @@ def test_register_app_shows_up_via_app_query(db_session: Session) -> None:
 
     found = db_session.scalars(select(App).where(App.slug == "office-supply-request-tracker")).one()
     assert found.name == "Office Supply Request Tracker"
+
+
+PICKUP_PLAN_RESULT = {
+    "outcome": "proceed",
+    "name": "Email notifications",
+    "purpose": "Send an email when a report is approved.",
+    "blueprint_id": "streamlit-small",
+    "complexity_score": 2,
+    "score_justification": {"data_sources": "one"},
+    "capabilities": [
+        {"slug": "email_on_approval", "description": "Send an email when approved."},
+    ],
+}
+
+
+def _make_existing_app(db_session: Session) -> App:
+    app = App(
+        slug="expense-approval-tracker",
+        name="Expense Approval Tracker",
+        purpose="Track expense reports.",
+        blueprint_id="streamlit-small",
+        complexity_score=2,
+        manifest={},
+        repo_path="/app/generated_apps/expense-approval-tracker",
+        container_port=9001,
+    )
+    db_session.add(app)
+    db_session.commit()
+    return app
+
+
+def _make_pickup_runs(
+    db_session: Session, app: App, feature_request: FeatureRequest | None = None
+) -> tuple[Run, Run]:
+    plan_run = Run(
+        kind="plan",
+        requester_sub="22222222-2222-2222-2222-222222222222",
+        outcome="proceed",
+        app_id=app.id,
+        feature_request_id=feature_request.id if feature_request else None,
+        plan={"transcript": [], "result": PICKUP_PLAN_RESULT},
+    )
+    db_session.add(plan_run)
+    db_session.commit()
+
+    build_review_run = Run(
+        kind="build_review",
+        plan_run_id=plan_run.id,
+        app_id=app.id,
+        outcome="success",
+        repo_path=app.repo_path,
+        container_port=app.container_port,
+    )
+    db_session.add(build_review_run)
+    db_session.commit()
+    return plan_run, build_review_run
+
+
+def test_register_feature_appends_new_capability(db_session: Session) -> None:
+    app = _make_existing_app(db_session)
+    plan_run, build_review_run = _make_pickup_runs(db_session, app)
+
+    register_feature(db_session, plan_run, build_review_run, app)
+
+    assert {c.slug for c in app.capabilities} == {"email_on_approval"}
+
+
+def test_register_feature_skips_capability_that_already_exists(db_session: Session) -> None:
+    app = _make_existing_app(db_session)
+    from factory.registry.models import Capability
+
+    db_session.add(Capability(app_id=app.id, slug="email_on_approval", description="already there"))
+    db_session.commit()
+    plan_run, build_review_run = _make_pickup_runs(db_session, app)
+
+    register_feature(db_session, plan_run, build_review_run, app)
+
+    assert len(app.capabilities) == 1
+    assert app.capabilities[0].description == "already there"
+
+
+def test_register_feature_resolves_the_feature_request(db_session: Session) -> None:
+    app = _make_existing_app(db_session)
+    feature_request = FeatureRequest(
+        app_id=app.id, requester_sub="33333333-3333-3333-3333-333333333333", description="add email"
+    )
+    db_session.add(feature_request)
+    db_session.commit()
+    plan_run, build_review_run = _make_pickup_runs(db_session, app, feature_request)
+
+    register_feature(db_session, plan_run, build_review_run, app)
+
+    db_session.refresh(feature_request)
+    assert feature_request.status == "resolved"
+
+
+def test_mark_feature_request_picked_up(db_session: Session) -> None:
+    app = _make_existing_app(db_session)
+    feature_request = FeatureRequest(
+        app_id=app.id, requester_sub="33333333-3333-3333-3333-333333333333", description="add email"
+    )
+    db_session.add(feature_request)
+    db_session.commit()
+
+    mark_feature_request_picked_up(db_session, feature_request)
+
+    assert feature_request.status == "picked_up"
