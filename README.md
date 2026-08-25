@@ -268,9 +268,9 @@ something the model does directly.
 The order of operations is fixed in code: Build writes files, then a required-files check plus a
 secrets scan (gitleaks, plus a check for the literal value of this system's own API key) plus
 static analysis (bandit and ruff's security rules; only high-severity results block the pipeline)
-all run, then Review runs, and only after Review passes does anything get committed, pushed to
-Gitea, or run as a container. One retry (two attempts total) is allowed before a run is marked
-failed, with the accumulated findings recorded.
+all run, then Review runs, and only after Review passes does anything get committed, built, and
+run as a container, or pushed to Gitea. One retry (two attempts total) is allowed before a run is
+marked failed, with the accumulated findings recorded.
 
 The `api` container runs as root (this is required for Docker socket access), so generated files
 are changed to be owned by `HOST_UID`/`HOST_GID` (default `1000`/`1000`) once each attempt's
@@ -281,9 +281,13 @@ a different owner.
 **Gitea.** The local working directory (`generated_apps/<slug>`) is what Docker builds from and
 what Build writes into — real files on the host, so they can be inspected whether or not the push
 to Gitea succeeds. The permanent copy that a person would actually clone lives in Gitea
-(`factory/agents/gitea_client.py`): after a successful commit, the pipeline creates the repository
-if it doesn't already exist, then pushes over HTTP with a login token that's used once for that
-push and never written to the repository's own configuration file or shown in an error message.
+(`factory/agents/gitea_client.py`): the push happens last, only after the container has actually
+built and started successfully, not right after the commit — pushing straight after commit meant a
+retry (which starts the next attempt from a clean git history) could push unrelated history onto a
+repo Gitea already had a commit on, and be rejected before Build even got a chance to fix the
+actual failure. The push itself creates the repository if it doesn't already exist, then pushes
+over HTTP with a login token that's used once for that push and never written to the repository's
+own configuration file or shown in an error message.
 
 **Network isolation.** Generated containers run on `factory-generated-net`, which has no route to
 Postgres or Keycloak; only `api` is connected to both networks. `make eval-build` checks this

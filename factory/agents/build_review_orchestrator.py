@@ -292,16 +292,27 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
             # refuses to operate on a repo it doesn't own (observed live).
             # The Gitea push goes here too, for the same reason: it's a git
             # operation against the same root-owned working tree.
+            #
+            # Push comes *after* dockerize succeeds, not before: pushing
+            # first and then having dockerize fail left a real problem on a
+            # fresh (non-pickup) build — the next attempt wipes app_dir
+            # (_reset_app_dir), so its retry commits an unrelated git history
+            # on top of a repo Gitea already has a commit on, and the retry's
+            # push is then rejected as non-fast-forward before Build even
+            # gets a chance to fix the actual dockerize failure. Pushing last
+            # means a failed attempt never reaches Gitea at all, so a retry's
+            # fresh history always pushes against an empty (or unchanged)
+            # remote.
             if is_pickup:
                 _git_commit_change(app_dir, f"Add capability: {plan['name']}")
             else:
                 _git_init_and_commit(app_dir)
-            repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
             repo_path, container_port = (
                 _dockerize(app_dir, slug, target_app.container_port)
                 if is_pickup
                 else _dockerize(app_dir, slug)
             )
+            repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
         except Exception as exc:  # noqa: BLE001 - any docker/git/gitea failure is a retryable build failure
             detail = getattr(exc, "stderr", None) or str(exc)
             all_findings = [
