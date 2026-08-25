@@ -6,7 +6,6 @@ ever git-committed or run as a container until it clears all three.
 """
 
 import os
-import re
 import shutil
 import subprocess
 import uuid
@@ -23,14 +22,10 @@ from factory.agents.container_runtime import allocate_port, build_and_run, get_d
 from factory.agents.review_session import run_review_turn
 from factory.agents.secrets_scanner import scan_directory
 from factory.registry.models import CostEvent, Run
+from factory.registry.slug import slugify
 
 GENERATED_APPS_DIR = Path(__file__).resolve().parents[2] / "generated_apps"
 REQUIRED_FILES = ["app.py", "Dockerfile", "README.md"]
-
-
-def slugify(name: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return slug or "app"
 
 
 class BuildReviewView(BaseModel):

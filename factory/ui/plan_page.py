@@ -1,4 +1,5 @@
-"""Request intake: the interactive Plan session chat, with the Gate 1 approval button."""
+"""Request intake: the interactive Plan session chat, with the Gate 1 and Gate 2
+approval buttons."""
 
 import os
 
@@ -17,6 +18,8 @@ def render(access_token: str) -> None:
         st.session_state.plan_transcript = []
         st.session_state.plan_done = False
         st.session_state.plan_outcome = None
+        st.session_state.build_review_result = None
+        st.session_state.registered_app = None
 
     for turn in st.session_state.plan_transcript:
         with st.chat_message(turn["role"]):
@@ -29,6 +32,8 @@ def render(access_token: str) -> None:
             st.session_state.plan_transcript = []
             st.session_state.plan_done = False
             st.session_state.plan_outcome = None
+            st.session_state.build_review_result = None
+            st.session_state.registered_app = None
             st.rerun()
         return
 
@@ -67,16 +72,23 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
         st.write("Capabilities:")
         for cap in outcome["capabilities"]:
             st.write(f"- **{cap['slug']}** — {cap['description']}")
-        if st.button("Approve — proceed to Build"):
-            with (
-                st.spinner("Building and reviewing — this can take a minute..."),
-                httpx.Client(base_url=API_BASE_URL, timeout=300.0, headers=auth_headers) as client,
-            ):
-                approve_response = client.post(f"/plans/{run_id}/approve")
-            if approve_response.status_code == 200:
-                _render_build_review_result(approve_response.json())
-            else:
-                st.error(approve_response.json().get("detail", "Approval failed."))
+
+        if st.session_state.build_review_result is None:
+            if st.button("Approve — proceed to Build"):
+                with (
+                    st.spinner("Building and reviewing — this can take a minute..."),
+                    httpx.Client(
+                        base_url=API_BASE_URL, timeout=300.0, headers=auth_headers
+                    ) as client,
+                ):
+                    approve_response = client.post(f"/plans/{run_id}/approve")
+                if approve_response.status_code == 200:
+                    st.session_state.build_review_result = approve_response.json()
+                    st.rerun()
+                else:
+                    st.error(approve_response.json().get("detail", "Approval failed."))
+        else:
+            _render_build_review_result(st.session_state.build_review_result, auth_headers)
 
     elif kind == "route_to_human":
         st.warning(outcome["message"])
@@ -95,13 +107,29 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
         )
 
 
-def _render_build_review_result(result: dict) -> None:
+def _render_build_review_result(result: dict, auth_headers: dict[str, str]) -> None:
     if result["success"]:
         st.success(f"Built and reviewed in {result['attempts']} attempt(s). {result['summary']}")
         st.write(f"Repo: `{result['repo_path']}`")
         st.write(f"Running at: http://localhost:{result['container_port']}")
+
+        if st.session_state.registered_app is None:
+            if st.button("Approve — Register"):
+                with httpx.Client(
+                    base_url=API_BASE_URL, timeout=30.0, headers=auth_headers
+                ) as client:
+                    register_response = client.post(f"/builds/{result['run_id']}/approve")
+                if register_response.status_code == 200:
+                    st.session_state.registered_app = register_response.json()
+                    st.rerun()
+                else:
+                    st.error(register_response.json().get("detail", "Registration failed."))
+        else:
+            registered = st.session_state.registered_app
+            st.success(f"Registered as **{registered['slug']}** in the registry.")
     else:
         st.error(f"Failed after {result['attempts']} attempt(s): {result['summary']}")
+
     if result["findings"]:
         st.write("Findings:")
         for finding in result["findings"]:

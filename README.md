@@ -8,14 +8,13 @@ Generated apps are deliberately small — this is a POC.
 
 ## Status
 
-Through M5: FastAPI orchestration API, Streamlit UI, Postgres registry, Keycloak-backed
-identity, the Plan stage (interactive session ending in `proceed` / `route_to_human` /
-`feature_request`), and Build + Review. Approving a `proceed` plan (Gate 1) now actually builds
-it: a Build session writes a small Streamlit app, a deterministic gate (required files +
-gitleaks) runs before Review ever sees it, a Review session grades security/quality, one retry
-on failure, then — only after a pass — a real `git commit` and a running Docker container on an
-allocated port. No Register yet (App rows aren't created until Gate 2 approval lands) — see the
-plan for the milestone sequence.
+Through M6: the full lifecycle now runs end to end. FastAPI orchestration API, Streamlit UI,
+Postgres registry, Keycloak-backed identity, the Plan stage (interactive session ending in
+`proceed` / `route_to_human` / `feature_request`), Build + Review (Gate 1 approval builds a
+small Streamlit app, gated by required-files + gitleaks before Review, then `git commit` and a
+running Docker container only after a pass), and Register (Gate 2 approval — plain code, no LLM
+— creates the `App` row, its owner, its capabilities, and backfills accumulated cost onto it).
+See the plan for the milestone sequence (M7 — feature request pickup — is next).
 
 ## Running
 
@@ -113,6 +112,17 @@ factory's own data store. Generated containers now run on a separate network
 (`factory-generated-net`) with no route to `postgres`/`keycloak`; only `api` bridges both
 networks, which is what lets it still reach a generated container by internal IP for health
 checks. Verified live: a generated container cannot resolve `postgres` by DNS name at all.
+
+## Register
+
+Gate 2 (`POST /builds/{id}/approve`, same ownership check as Gate 1) is the only place an `App`
+row gets created — `factory/registry/register.py` is plain code, not agent-driven. It creates
+the app, an `AppOwner` (the original requester, as the `business` owner — the plan schema has no
+separate "owner" field, so the requester is the natural default), a `Capability` row per declared
+capability, and backfills `app_id` onto the plan run, the build/review run, and their existing
+`CostEvent` rows — which is what makes "cost accumulated across runs" on the registry page
+reflect the real per-stage spend instead of nothing. `factory/registry/slug.py` holds `slugify`
+so Build's directory name and the registered `App.slug` always agree.
 
 ## Evals
 

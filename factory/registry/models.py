@@ -122,6 +122,8 @@ class Run(Base):
     """For ``build_review`` runs: the generated app's directory, once Build succeeds."""
     container_port: Mapped[int | None] = mapped_column(default=None)
     """For ``build_review`` runs: the allocated host port, once the container is running."""
+    build_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
+    """Gate 2: set when a human approves a successful build for registration."""
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App | None] = relationship(back_populates="runs", foreign_keys=[app_id])

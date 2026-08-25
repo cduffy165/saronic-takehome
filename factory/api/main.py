@@ -13,6 +13,7 @@ from factory.api.auth import get_verified_sub
 from factory.registry.db import get_session
 from factory.registry.models import Run
 from factory.registry.plan_runs import approve_plan, get_plan_run
+from factory.registry.register import approve_build, register_app
 
 app = FastAPI(title="app-factory-api")
 
@@ -105,3 +106,35 @@ async def approve_plan_endpoint(
         raise HTTPException(status_code=409, detail="This plan was already approved.")
     approve_plan(session, run)
     return await run_build_and_review(session, run)
+
+
+class RegisterView(BaseModel):
+    app_id: uuid.UUID
+    slug: str
+    name: str
+
+
+@app.post("/builds/{run_id}/approve", response_model=RegisterView)
+def approve_build_endpoint(
+    run_id: uuid.UUID,
+    session: Annotated[Session, Depends(get_session)],
+    verified_sub: Annotated[str, Depends(get_verified_sub)],
+) -> RegisterView:
+    build_review_run = session.get(Run, run_id)
+    if build_review_run is None or build_review_run.kind != "build_review":
+        raise HTTPException(status_code=404, detail="No such build run.")
+
+    plan_run = (
+        session.get(Run, build_review_run.plan_run_id) if build_review_run.plan_run_id else None
+    )
+    if plan_run is None or plan_run.requester_sub != verified_sub:
+        raise HTTPException(status_code=403, detail="This build belongs to a different user.")
+
+    if build_review_run.outcome != "success":
+        raise HTTPException(status_code=409, detail="Only a successful build can be registered.")
+    if build_review_run.app_id is not None:
+        raise HTTPException(status_code=409, detail="This build was already registered.")
+
+    approve_build(session, build_review_run)
+    app_row = register_app(session, plan_run, build_review_run)
+    return RegisterView(app_id=app_row.id, slug=app_row.slug, name=app_row.name)
