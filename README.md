@@ -2,49 +2,18 @@
 
 ## What this is
 
-Say someone in operations needs a small internal tool — a way to log equipment maintenance and
-see what's overdue, for example. Today that turns into an ad-hoc spreadsheet, a favor from
-whichever engineer has a free afternoon, or a ticket that sits in a queue. Whatever gets built,
-nobody ends up clearly owning it, nobody tracks what it cost, and a year later nobody remembers
-why it exists or whether it's safe to turn off.
+This is a very early version of an internal app factory. It gives non-technical users a way to design, build, and eventually operate applications supported and enabled by IT folks with the support of AI. Someone describes what they need in plain language, an interactive planner works through the requirements with them, and the factory builds and deploys it from an architectural pattern that IT already supports. A person approves the plan before anything is built, and approves the finished app before it is registered.
 
-This project handles that request differently. The person who needs the tool describes what they
-want, in plain English, to an interactive planner — no engineer required. A human reviews and
-approves the plan before anything is built. The system then writes the app, checks it for security
-and quality problems, and — after a second human approval — registers it: a named, real owner; an
-itemized cost; and a plain description of what it does, recorded permanently and visible to
-anyone in the organization.
+It also catalogs and registers internal apps built by the business using AI. Every app gets a real owner, a description of what it does, and a record of what was spent building it. When a new request overlaps something that already exists, the planner routes the requester to the person who owns it instead of producing a second copy. When someone wants a change to an app that already exists, it is filed against that app rather than becoming a new one.
 
-The applications this produces are deliberately simple — small Streamlit apps running in Docker.
-That's on purpose: the interesting engineering here isn't in what gets built, it's in making the
-process of requesting, building, checking, and accounting for these small internal tools something
-both the people asking for them and the people responsible for them can actually trust.
+The applications it produces are deliberately simple, and the blueprints it builds from come from IT rather than from the factory itself. The value is in the process and the record, not in the sophistication of what gets generated. Though the longer term design intent is for the factory and blueprints to support slightly more complicated applications and concepts to better support the needs of the business.
 
-## Why this is worth building
+It runs locally for now since this is a proof of concept, but it supports the full flow of helping a user design, build, and deploy a simple internal application.
 
-Most organizations end up with small internal tools nobody can account for: a spreadsheet
-replacement a manager had built two years ago, a script someone in operations still runs, an app
-whose original author no longer works there. Nobody can say what it costs, who owns it, or
-whether something similar already exists. The same small tool gets rebuilt by different teams,
-and nothing gets retired with confidence because nobody knows what depends on it.
+## Why build this?
+Generally speaking organizations as they grow slowly accumulate internal tools that have been built to achieve a specific use that sometimes become key parts of how teams do their jobs. Especially with the ongoing increase in AI usage the number of these tools has started to accelerate and as a result more internal tools without basic information of what they are, who owns them, what value or capability they provide the business, and what they cost to build and operate are becoming increasingly important and showing up in more places than previously expected. 
 
-This platform answers those questions directly, as apps are created, instead of requiring someone
-to investigate later:
-
-- **Every app has a named owner** from the moment it's requested — a real, verified identity
-  (Keycloak), not a shared mailbox or an account that belongs to someone who has left.
-- **Every app's cost is recorded** at each stage (planning, building, reviewing) as it's built,
-  not estimated afterward.
-- **A duplicate request is routed to the person who already owns the existing app**, instead of
-  producing a fourth copy of the same tool.
-- **Changes to an existing app go through its owner**, so new capabilities and their cost are
-  recorded against the same app instead of becoming an untracked, separate copy.
-- **Scope is limited by a fixed rule, not by judgment call** — a numeric limit on how complex a
-  request can be stops a single request from covering something that should instead go through a
-  real design conversation with a person.
-
-The generated apps themselves don't need to be impressive for this to work. What matters is that
-the record the system produces is accurate.
+This tool seeks to fill those gaps by serving as both the platform thats used to build these internal apps but also manage their lifecycle (for now creation and changes), provide IT and technology organizations the ability to review those applications as they are built, as well as track their ownership and cost to build.
 
 ## Architecture
 
@@ -79,12 +48,11 @@ flowchart LR
     api -->|"builds and starts,<br/>via the Docker socket"| app2
 ```
 
-Five services, two Docker networks. `api` is the only service connected to both — it's what
-builds and starts each generated app's container over the same Docker socket the rest of the
-stack runs on, and it's the only bridge between the trusted infrastructure (Postgres, Keycloak,
-Gitea) and the untrusted generated apps. A generated app has no network route to Postgres or
-Keycloak at all; that's enforced by which network its container sits on, not by a setting inside
-the app that the generated code could get wrong.
+Five services, two Docker networks. `api` is the only service on both — it builds and starts each
+generated app's container over the Docker socket, and it's the only bridge between the trusted
+infrastructure and the untrusted generated apps. A generated app has no network route to Postgres
+or Keycloak at all, enforced by which network its container sits on, not by a setting inside the
+app itself.
 
 ### The pipeline
 
@@ -114,67 +82,49 @@ flowchart LR
     gate2 --> register
 ```
 
-Every request ends in exactly one of three outcomes from the planner: it gets built, it's routed
-to the person who already owns something like it, or it's filed as a request against an app that
-already exists. Only the first outcome reaches Build and Review. Both gates are a real human
-decision, not a formality — Gate 1 happens before a build spends any money, Gate 2 happens before
-anything is permanently recorded.
+Every request ends in one of three outcomes: it gets built, it's routed to whoever already owns
+something like it, or it's filed against an app that already exists. Only the first outcome reaches
+Build and Review. Both gates are real decisions, not formalities — Gate 1 is before a build spends
+money, Gate 2 is before anything is permanently recorded.
 
 ### How this stays reliable
 
-The reliability of this system doesn't come from more careful prompting. It comes from moving as
-many checks as possible out of the model's judgment and into code that runs before the model acts,
-plus requiring a human decision at the two points where a mistake would be expensive or hard to
-undo.
+Reliability here doesn't come from careful prompting. It comes from moving checks out of the
+model's judgment and into code that runs before the model acts, plus a human decision at the two
+points where a mistake would be expensive or hard to undo.
 
-**Checks that don't depend on the model's judgment run first, and run before the model gets a
-say:**
-- Every file Build writes is checked by code that resolves the path and confirms it's still
-  inside the app's own directory. This isn't a prompt instruction; it's a permission check the
-  model cannot bypass by being told something different.
-- Every generated app is scanned by gitleaks (a maintained tool for finding secrets by pattern),
-  by a separate check for the literal value of this system's own live API key, and by bandit and
-  ruff's security rules for Python-specific problems — all before the model doing the review ever
-  reads the code. A high-severity result from any of these stops the pipeline outright. The
-  model's own review only runs on code that has already passed every check that doesn't need
-  judgment at all.
-- The planner is never trusted to correctly report whether a request duplicates an existing app
-  using only a single lookup call it might get wrong. It's given the full list of registered
-  apps, their capabilities, and their owners as text, and told directly that a lookup returning no
-  match does not mean there's no duplicate.
-- Free-text values the model is asked to repeat back are exactly where it invents things: during
-  testing, it invented a blueprint identifier that doesn't exist, and separately named a real
-  user by a plain username instead of their actual account identifier. Both problems are now
-  prevented in code: the blueprint identifier is filled in by the orchestrator and never asked of
-  the model at all, and any named owner is checked against the app's real, verified owners before
-  being accepted — if it doesn't match a real owner, a real one is substituted.
+- Every file Build writes is checked in code against the app's own directory — not a prompt
+  instruction, a permission check the model can't talk its way around.
+- Every generated app is scanned by gitleaks, a check for this system's own live API key, and
+  bandit/ruff's security rules — all before Review ever reads the code. A high-severity result
+  from any of them stops the pipeline outright.
+- The planner never relies on a single lookup call to catch duplicates. It's given the full list
+  of registered apps, capabilities, and owners as text, with an explicit warning that no match on
+  a lookup doesn't mean no duplicate.
+- Free text the model has to repeat back is exactly where it invents things — during testing it
+  hallucinated a blueprint id and once named a user by plain username instead of their real
+  account id. Both are now handled in code instead: the blueprint id is filled in by the
+  orchestrator and never asked of the model, and any named owner is checked against the app's real
+  owners and swapped for a real one if it doesn't match.
 
-**Two separate approval points, not one.** Approving the plan (before anything is built) and
-approving the finished app (before it's permanently recorded) are different decisions with
-different consequences. Combining them into one approval would mean a human can't stop a bad plan
-before money is spent, or can't stop a working app they don't want permanently recorded.
+**Two separate approvals, not one.** Approving the plan (before anything is built) and approving
+the finished app (before it's permanently recorded) are different decisions with different
+consequences — one human check can't cover both.
 
-**Fixed limits on turns, retries, and scope.** The planner stops after 8 exchanges rather than
-continuing indefinitely. Build and Review get one retry (two attempts total) before reporting a
-clear failure instead of retrying forever. A numeric limit on how complex a request can be means
-a request that's too large is routed to a person instead of being built anyway.
+**Fixed limits.** The planner stops after 8 exchanges. Build and Review get one retry before
+reporting a clear failure. A numeric complexity limit routes anything too large to a person
+instead of building it anyway.
 
 **Network isolation that's checked, not just configured.** Generated containers run on a network
-with no route to Postgres or Keycloak. This is checked automatically: one of the automated tests
-attempts a network connection from inside a real generated container to those services and
-confirms it fails, rather than only trusting that the configuration is correct. The Claude Agent
-SDK itself is run with settings that stop it from picking up a developer's own local tool
-configuration — an early bug let it do exactly that, at real cost (see the cost log below).
-Every API request is checked against a real, verified login token, so the system's own endpoints
-can't be used by someone pretending to be another user.
+with no route to Postgres or Keycloak, and an automated test confirms that from inside a real
+container rather than trusting the config. The Claude Agent SDK runs with settings that stop it
+from picking up a developer's own local tool configuration — an early bug let it do exactly that,
+at real cost (see the cost log below). Every API request is checked against a real login token.
 
-**Every stage was actually run, not just tested against a stand-in.** Each part of this system was
-checked against the real thing it depends on — a real Postgres database, a real Keycloak login, a
-real call to the Claude Agent SDK, a real Docker build and a real running container, a full
-two-person walkthrough of one user filing a request against another user's app. Several of the
-bugs listed below (a git ownership error, a network configuration gap, an
-owner-validation gap) were only found because of this; none of them would have been caught by
-tests that stood in for the real systems instead of using them.
+**Every stage was actually run, not tested against a stand-in.** A real Postgres, a real Keycloak
+login, a real Claude Agent SDK call, a real Docker build, a two-person feature-request walkthrough.
+Several of the bugs below — a git ownership error, a network gap, an owner-validation gap — were
+only found this way.
 
 ## Getting it running
 
@@ -185,10 +135,9 @@ cp .env.example .env    # fill in ANTHROPIC_API_KEY, the one thing nothing can d
 make up
 ```
 
-That single command builds and starts every service, creates the Gitea account and access token
-and stores it, and loads the database schema and the seeded example apps. It takes a few minutes
-the first time (building images) and is safe to run again later — re-running it just confirms
-everything is already in place.
+That single command builds and starts every service, creates the Gitea account and token, and
+loads the schema and seed data. First run takes a few minutes (building images); re-running it
+just confirms everything's already in place.
 
 When it finishes, you'll see:
 
@@ -203,23 +152,16 @@ If your browser doesn't resolve `auth.localhost` to `127.0.0.1` on its own (most
 `.localhost` is reserved to always mean the local machine), add `127.0.0.1 auth.localhost` to
 your hosts file.
 
-**What `make up` is actually doing** (`scripts/bootstrap.sh`), for anyone who wants to run a step
-by hand or knows why it might need to be redone:
-1. Copies `.env.example` to `.env` and `.streamlit/secrets.toml.example` to
-   `.streamlit/secrets.toml` if they don't exist yet (dev-only values, see Identity below), then
-   stops with a clear message if `ANTHROPIC_API_KEY` still looks like the placeholder.
+**What `make up` does** (`scripts/bootstrap.sh`):
+1. Copies `.env.example`/`.streamlit/secrets.toml.example` if they don't exist yet, and stops with
+   a clear message if `ANTHROPIC_API_KEY` still looks like the placeholder.
 2. `docker compose up -d --build` — starts Postgres, Keycloak, Gitea, `api`, and `ui`.
-3. Waits for Gitea to report healthy, then creates the `factory` service account and mints an
-   access token — the same two steps `make gitea-init` used to require you to do and then paste in
-   by hand — and writes it into `.env` as `GITEA_TOKEN`.
+3. Waits for Gitea, then creates the `factory` service account, mints an access token, and writes
+   it into `.env` as `GITEA_TOKEN` — generating it needs Gitea already running, which is why it
+   can't just be a required setting up front like `ANTHROPIC_API_KEY`.
 4. Restarts `api` so it picks up the new token.
-5. Runs `alembic upgrade head` and the registry seed loader, both inside the `api` container, so
-   nothing on the host needs Python or `uv` installed at all.
-
-`GITEA_TOKEN` isn't required up front the way `ANTHROPIC_API_KEY` is, because generating it
-requires Gitea to already be running — requiring it up front would make it impossible to ever
-start Gitea in the first place. That's exactly the ordering problem step 3 above exists to handle
-automatically.
+5. Runs `alembic upgrade head` and the registry seed loader inside the `api` container, so nothing
+   on the host needs Python or `uv` at all.
 
 ## Identity and login
 
@@ -228,35 +170,29 @@ Keycloak runs as a container with a small realm meant only for this project
 Streamlit's built-in login (`st.login`) is the identity provider; `app_owners.keycloak_sub` stores
 the real, verified subject identifier from that login.
 
-**Issuer hostname.** Keycloak is configured with `KC_HOSTNAME=auth.localhost` so the browser and
-the `ui` container reach it at the same address. Without this, the browser would reach Keycloak
-at `localhost:8080` while `ui` reached it at `keycloak:8080`, and login verification would fail
-because the two addresses don't match. The `ui` container resolves `auth.localhost` to the host
-machine through Docker's `host-gateway` setting, landing back on Keycloak's published port.
+**Issuer hostname.** `KC_HOSTNAME=auth.localhost` makes the browser and the `ui` container reach
+Keycloak at the same address. Without it, the browser sees `localhost:8080` and `ui` sees
+`keycloak:8080` — different addresses fail login verification. `ui` resolves `auth.localhost`
+back to the host via Docker's `host-gateway`.
 
-**API authentication.** `factory/api/auth.py` checks a real Keycloak login token on every
-`/plans*` and `/builds*` request — its signature is checked against Keycloak's public keys, and
-its issuer and client are checked against expected values — and the caller's identity comes from
-that verified token, not from anything the caller supplies directly. Every endpoint also checks
-that a run belongs to the verified caller before allowing it to be continued, read, or approved.
-The UI reads the login token via `expose_tokens = ["access"]` and sends it as
-`Authorization: Bearer <token>` on every request; the automated evaluation scripts log in the same
-way, using `evals/keycloak_auth.py` to get a real token for each fixture user rather than
-bypassing the check.
+**API authentication.** `factory/api/auth.py` checks a real Keycloak token on every `/plans*` and
+`/builds*` request — signature against Keycloak's public keys, issuer and client checked, identity
+taken from the verified token rather than anything the caller supplies. Every endpoint also checks
+that a run belongs to the verified caller. The UI sends this token as `Authorization: Bearer
+<token>`; the eval scripts log in as real fixture users the same way (`evals/keycloak_auth.py`)
+rather than bypassing the check.
 
 ## Planning a new app
 
 `factory/agents/plan_session.py` calls the real Claude Agent SDK, which runs the actual Node-based
-`claude` command-line tool as a subprocess — the `api` image installs Node and
-`@anthropic-ai/claude-code` for exactly this. The SDK is configured so it does not read a
-developer's own local configuration (`setting_sources=[]`, `strict_mcp_config=True`). **Only ever
-run or test this SDK from inside a container** — never with a personal API key on a development
-machine.
+`claude` CLI as a subprocess — the `api` image installs Node and `@anthropic-ai/claude-code` for
+this. It's configured not to read a developer's own local config (`setting_sources=[]`,
+`strict_mcp_config=True`). **Only ever run or test this SDK inside a container** — never with a
+personal API key on a dev machine.
 
-Requires `ANTHROPIC_API_KEY` in `.env` (this makes real, billed API calls). The 8-turn limit on
-the planner is enforced by this project's own code (`Run.turns_used`), separately from the SDK's
-own per-connection turn limit, because each HTTP request starts a new SDK connection that resumes
-the same underlying session.
+Requires `ANTHROPIC_API_KEY` in `.env` (real, billed calls). The 8-turn planner limit is enforced
+by this project's own code (`Run.turns_used`), separately from the SDK's own per-connection limit,
+since each HTTP request starts a new SDK connection resuming the same session.
 
 ## Building and reviewing
 
@@ -265,54 +201,45 @@ access, and every file write is checked against the app's own directory before i
 Starting the container is ordinary code (`container_runtime.py`, using `docker-py`), never
 something the model does directly.
 
-The order of operations is fixed in code: Build writes files, then a required-files check plus a
-secrets scan (gitleaks, plus a check for the literal value of this system's own API key) plus
-static analysis (bandit and ruff's security rules; only high-severity results block the pipeline)
-all run, then Review runs, and only after Review passes does anything get committed, built, and
-run as a container, or pushed to Gitea. One retry (two attempts total) is allowed before a run is
-marked failed, with the accumulated findings recorded.
+The order is fixed in code: Build writes files, then a required-files check, a secrets scan
+(gitleaks plus a check for this system's own API key), and static analysis (bandit/ruff, only
+high-severity results block) all run, then Review — and only after Review passes does anything get
+committed, built, run as a container, or pushed to Gitea. One retry is allowed before a run is
+marked failed, findings recorded.
 
-The `api` container runs as root (this is required for Docker socket access), so generated files
-are changed to be owned by `HOST_UID`/`HOST_GID` (default `1000`/`1000`) once each attempt's
-outcome is known — this has to happen after the git operations, not before, because git itself
-runs as root and refuses to operate on a repository it doesn't own if it's already been changed to
-a different owner.
+The `api` container runs as root (needed for Docker socket access), so generated files are chowned
+to `HOST_UID`/`HOST_GID` (default `1000`/`1000`) once an attempt's outcome is known — after the git
+operations, not before, since git itself runs as root and refuses to touch a repo it doesn't own.
 
-**Gitea.** The local working directory (`generated_apps/<slug>`) is what Docker builds from and
-what Build writes into — real files on the host, so they can be inspected whether or not the push
-to Gitea succeeds. The permanent copy that a person would actually clone lives in Gitea
-(`factory/agents/gitea_client.py`): the push happens last, only after the container has actually
-built and started successfully, not right after the commit — pushing straight after commit meant a
-retry (which starts the next attempt from a clean git history) could push unrelated history onto a
-repo Gitea already had a commit on, and be rejected before Build even got a chance to fix the
-actual failure. The push itself creates the repository if it doesn't already exist, then pushes
-over HTTP with a login token that's used once for that push and never written to the repository's
-own configuration file or shown in an error message.
+**Gitea.** `generated_apps/<slug>` is the real, inspectable working tree Docker builds from and
+Build writes into; the permanent copy a person would clone lives in Gitea
+(`factory/agents/gitea_client.py`). The push happens last — only after the container builds and
+starts — not right after the commit: pushing earlier meant a retry (starting from clean git
+history) could push unrelated history onto a repo Gitea already had a commit on and get rejected
+before Build even had a chance to fix the real failure. It creates the repo if needed, then pushes
+over HTTP with a token used once and never written to the repo's own config or shown in an error.
 
-**Network isolation.** Generated containers run on `factory-generated-net`, which has no route to
-Postgres or Keycloak; only `api` is connected to both networks. `make eval-build` checks this
-directly by attempting a connection from inside the running generated container and confirming it
-fails — this check exists because the network configuration was wrong once (see "Where a mistake
+**Network isolation.** Generated containers run on `factory-generated-net`, with no route to
+Postgres or Keycloak; only `api` sits on both networks. `make eval-build` checks this directly from
+inside a running generated container — this exists because the network config was wrong once (see
+"Where a mistake
 was made, and how it was caught" below).
 
 ## Registering the finished app
 
 The second approval (`POST /builds/{id}/approve`) is the only place an `App` row gets created —
-`factory/registry/register.py` is ordinary code, not something the model runs. It creates the
-app, an `AppOwner` record (the original requester, recorded as the `business` owner), a
-`Capability` record for each capability the plan declared, and updates the plan run, the
-build/review run, and their `CostEvent` records with the new app's identifier.
+plain code (`factory/registry/register.py`), not the model. It creates the app, an `AppOwner`
+(the requester, as `business` owner), a `Capability` per declared capability, and stamps the plan
+and build/review runs with the new app's id.
 
 ## Picking up a feature request
 
-An app owner sees open requests against apps they own at `GET /feature-requests`. Picking one up
-starts a normal Plan session using the request's description as the opening message, with
-`Run.app_id` set to the target app when the run is created — that one field is the only signal
-Build, Review, and Register need to modify the existing app instead of building a new one. Build
-writes into the app's existing files; if a retry is needed, the failed attempt's changes are
-discarded with `git checkout`/`git clean`, never by deleting and recreating the directory.
-Register adds the new capability to the existing app and marks the request resolved, instead of
-creating a new app.
+An owner sees open requests against their apps at `GET /feature-requests`. Picking one up starts a
+normal Plan session with the request's description as the opening message and `Run.app_id` set to
+the target app — that one field is the only signal Build, Review, and Register need to modify the
+existing app instead of building a new one. A failed retry discards its changes with `git
+checkout`/`git clean`, never by deleting the directory. Register adds the capability to the
+existing app and marks the request resolved.
 
 Known gap, not yet fixed: if the pipeline fails after the first approval has already been recorded,
 the plan is left in an approved-but-unbuilt state with no way to retry it through the API — this
@@ -353,9 +280,8 @@ curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleak
   | tar -xz -C ~/.local/bin gitleaks   # or any directory already on PATH
 ```
 
-`bandit` and `ruff` are regular Python dependencies (`uv sync` installs both). `ruff` is listed as
-a main dependency rather than a development-only one because Review actually calls it (its
-security rules) as part of the running system, not only for checking this project's own code.
+`bandit` and `ruff` are regular dependencies (`uv sync` installs both) — `ruff` is a main
+dependency, not dev-only, because Review calls its security rules as part of the running system.
 
 ## What to build next
 
@@ -365,149 +291,107 @@ security rules) as part of the running system, not only for checking this projec
 
 ### Key decisions
 
-| Decision | Choice | What was considered and rejected, and why |
-|---|---|---|
-| Registry storage | Postgres, with the raw plan stored as a `jsonb` column and capabilities/owners stored as their own rows | Storing everything only as `jsonb` with no separate rows — rejected because duplicate detection and scope comparison need to be plain, indexable queries, not searches through a JSON document, to stay predictable and testable. |
-| Identity | A real Keycloak container and realm, using Streamlit's built-in login | A selector that lets a user pick who they're pretending to be, with no real login — rejected in favor of a real, verifiable identity, since naming a specific owner only means something if that identity is real. |
-| Blueprint scope limit | A numeric complexity score from 1 to 5, with a written description and worked examples for each level, given to the planner as reference text | A bare number with nothing explaining what it means — rejected as too likely to be scored inconsistently between runs with nothing to check it against. |
-| Build/Review structure | Two separate Claude Agent SDK sessions (Build, then Review), controlled by this project's own code | One SDK session with Build and Review as subagents inside it — this was the original plan; changed on request, because turn limits and per-stage cost tracking are simpler to implement as code controlling two sessions than as the SDK's own subagent handling. |
-| Secrets scanning | gitleaks, plus a separate check for the literal value of this system's own live API key | Regular expressions written by hand for this project (the first version — correctly pointed out as redoing work a maintained tool already does well); detect-secrets (a Python library with no way to check whether a found value is a real, currently valid credential); TruffleHog (checks whether a found credential is currently valid, which doesn't help here, since a generated app should never contain a real credential regardless of whether it's still valid). |
-| Static analysis in Review | bandit and ruff's security rules, where a high-severity result blocks the pipeline | Review done only by the model reading the code (the first version — correctly pointed out as an easy shortcut, since a maintained tool exists for exactly this and the model alone missed a category of problems a fixed tool catches every time). |
-| Where generated apps are stored | Gitea (a self-hosted git server); local disk is only the working copy Build writes into and Docker builds from | Local disk as the only copy (the first version) — changed because a directory on the host isn't a real way for a person to clone, push, and control access to the code; a real git server is. |
-| Python version | 3.13, used everywhere (this project's own images and the generated apps' images) | 3.12 (the original choice) — there was no actual reason to prefer 3.12; it was simply the first version picked, without being asked. |
-| Cost tracking | A separate record for each stage and each model used, attached to the app once it's registered | One combined number per run — rejected because it hides which stage is expensive, which is the useful part of tracking cost at all. |
+| Decision                        | Choice                                                                                                                                        | What was considered and rejected, and why                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Registry storage                | Postgres, with the raw plan stored as a `jsonb` column and capabilities/owners stored as their own rows                                       | Storing everything only as `jsonb` with no separate rows — rejected because duplicate detection and scope comparison need to be plain, indexable queries, not searches through a JSON document, to stay predictable and testable.                                                                                                                                                                                                                                          |
+| Identity                        | A real Keycloak container and realm, using Streamlit's built-in login                                                                         | A selector that lets a user pick who they're pretending to be, with no real login — rejected in favor of a real, verifiable identity, since naming a specific owner only means something if that identity is real.                                                                                                                                                                                                                                                         |
+| Blueprint scope limit           | A numeric complexity score from 1 to 5, with a written description and worked examples for each level, given to the planner as reference text | A bare number with nothing explaining what it means — rejected as too likely to be scored inconsistently between runs with nothing to check it against.                                                                                                                                                                                                                                                                                                                    |
+| Build/Review structure          | Two separate Claude Agent SDK sessions (Build, then Review), controlled by this project's own code                                            | One SDK session with Build and Review as subagents inside it — this was the original plan; changed on request, because turn limits and per-stage cost tracking are simpler to implement as code controlling two sessions than as the SDK's own subagent handling.                                                                                                                                                                                                          |
+| Secrets scanning                | gitleaks, plus a separate check for the literal value of this system's own live API key                                                       | Regular expressions written by hand for this project (the first version — correctly pointed out as redoing work a maintained tool already does well); detect-secrets (a Python library with no way to check whether a found value is a real, currently valid credential); TruffleHog (checks whether a found credential is currently valid, which doesn't help here, since a generated app should never contain a real credential regardless of whether it's still valid). |
+| Static analysis in Review       | bandit and ruff's security rules, where a high-severity result blocks the pipeline                                                            | Review done only by the model reading the code (the first version — correctly pointed out as an easy shortcut, since a maintained tool exists for exactly this and the model alone missed a category of problems a fixed tool catches every time).                                                                                                                                                                                                                         |
+| Where generated apps are stored | Gitea (a self-hosted git server); local disk is only the working copy Build writes into and Docker builds from                                | Local disk as the only copy (the first version) — changed because a directory on the host isn't a real way for a person to clone, push, and control access to the code; a real git server is.                                                                                                                                                                                                                                                                              |
+| Python version                  | 3.13, used everywhere (this project's own images and the generated apps' images)                                                              | 3.12 (the original choice) — there was no actual reason to prefer 3.12; it was simply the first version picked, without being asked.                                                                                                                                                                                                                                                                                                                                       |
+| Cost tracking                   | A separate record for each stage and each model used, attached to the app once it's registered                                                | One combined number per run — rejected because it hides which stage is expensive, which is the useful part of tracking cost at all.                                                                                                                                                                                                                                                                                                                                        |
 
 ### Where a mistake was made, and how it was caught
 
-- **A security decision written into the documentation as if it had already been settled.** After
-  an early version of this project, the documentation described the API accepting a caller's
-  claimed identity without checking it, and called this an acceptable limitation for a
-  proof-of-concept. That description was written by me, without being checked with anyone, and
-  then treated as a settled fact in later work. A security review later found that this made the
-  API's endpoints genuinely exploitable — anyone who could reach the API could claim to be any
-  user and trigger real builds on the host. The deeper problem was pointed out directly: a
-  decision and its own justification had both been written by the same unchecked process, with
-  nothing in between. This is fixed now, with real login token verification on every request.
-- **A secret nearly written to a file the wrong way.** Asked to put a real API key into a `.env`
-  file, I used a shell command instead of the file-editing tool, specifically to avoid printing
-  the key — which had the opposite effect, because this tool's file-change detection shows the
-  full contents of any file changed outside its own editing tools, so the key was printed anyway.
-  This was caught immediately, and there is now a fixed rule for this project: a real secret only
-  ever goes into a file through the editing tool directly, never through a shell command.
-  
-  **A note on this key specifically:** this incident happened with the real, currently-active API
-  key for this account. Because the key was never sent anywhere outside this machine and the
-  provider that already legitimately holds it, the actual increase in risk was limited to it
-  appearing in this machine's own local session records — but it could not be rotated afterward,
-  which is exactly the situation this rule exists to prevent.
-- **The Agent SDK picking up an entire unrelated setup it shouldn't have had access to.** Early
-  testing of the Plan session was run from inside my own development session instead of inside a
-  container. This meant the SDK's own subprocess picked up every tool, skill, and plugin
-  configured for that development session — using around 15,800 tokens of context and real money
-  on a single one-word test that should have cost a few cents. A leftover process was still running
-  afterward; this was noticed, a direct question was asked about why a command-line tool was
-  involved at all (a reasonable question — it wasn't a shortcut I took, it's how the SDK is
-  actually implemented), and a standing rule was set: this SDK is only ever run inside a container
-  from that point on.
-- **A group of decisions made and shipped without being asked about first.** After an early
-  working version of the whole pipeline, a manual review found several choices made without
-  checking first: no automated test that the network configuration change actually worked, plain
-  disk used instead of a real git server, a Python version picked without thinking about it,
-  review done by the model alone with no separate tool, a naming convention that repeated the same
-  value twice for no reason, and comments written as one-line quoted text after a value instead of
-  as a plain comment. None of these were hidden, but none were raised for a decision either. All
-  were fixed in one pass, several of them properly asked about this time before being changed.
-- **A stale-data problem found without anyone else pointing it out.** Worth including because it's
-  the same kind of mistake, caught a different way: the code that checks whether a named owner is
-  real was written to accept any value that already appeared in the owner records — including old,
-  leftover entries written during testing, before real login-based identity existed. A routine
-  check during later testing turned up a case where an old, non-identity-shaped entry let a wrong
-  answer pass as if it were real. The fix requires an owner value to actually look like a real,
-  verified identity, not merely appear somewhere in the existing records, so old bad data can't
-  make a new bad answer look correct again.
+- **A security decision written into the docs as if it were already settled.** An early version's
+  docs described the API accepting a caller's claimed identity unchecked, calling it an acceptable
+  POC limitation — written by me, unchecked, then treated as settled fact later on. A security
+  review found this made every endpoint exploitable: anyone who could reach the API could claim to
+  be any user and trigger real builds. The real problem: a decision and its justification, written
+  by the same unchecked process, with no check in between. Fixed with real token verification on
+  every request.
+- **A secret nearly written to a file the wrong way.** Asked to put a real API key into `.env`, I
+  used a shell command instead of the file-editing tool to avoid printing the key — which backfired,
+  since this tool's file-change detection echoes the full contents of anything changed outside its
+  own editing tools. Caught immediately; the fixed rule now is that a real secret only ever goes in
+  through the editing tool, never a shell command. (The key itself never left this machine or the
+  provider that already holds it, so the exposure was limited to local session records — but it
+  couldn't be rotated afterward, which is exactly what the rule now prevents.)
+- **The Agent SDK picking up an entire unrelated setup.** Early Plan-session testing ran from my
+  own dev session instead of a container, so the SDK's subprocess inherited every tool, skill, and
+  plugin configured there — about 15,800 tokens and real money on one one-word test. Caught via a
+  leftover running process; fixed with a standing rule that this SDK only ever runs in a container.
+- **A batch of decisions shipped without being asked about first.** A manual review after an early
+  working pipeline found several: no automated test for the network config change, plain disk
+  instead of a real git server, an unconsidered Python version, model-only review with no separate
+  tool, a redundant naming convention, and comments written as quoted strings instead of plain
+  comments. None hidden, none raised for a decision either — all fixed in one pass, most asked
+  about first this time.
+- **A stale-data problem found without anyone pointing it out.** The check for whether a named
+  owner is real accepted anything already present in the owner records — including old test rows
+  from before real login-based identity existed. Testing turned up a case where one such row let a
+  wrong answer pass as real. Fixed by requiring an owner value to actually look like a verified
+  identity, not just be present in the table.
 
 ### Cost log
 
-Money was spent in two different places against the same API key, and they need to be counted
-separately before they can be added together.
+Money was spent in two places against the same API key — they need to be counted separately before
+they can be added together.
 
-**1. The factory's own model calls — planning, building, reviewing generated apps.** These are
-recorded in the `cost_events` table as they happen, per model call, so these figures are exact,
-not estimated:
-- One complete plan-build-review cycle for a small app (two capabilities, one attempt, no
-  retries): typically **$0.15 to $0.35** in total, split roughly evenly across the planning step,
-  the build step, and the review step. Each of these steps uses two different models — the SDK
-  automatically sends some smaller sub-requests to a cheaper model and the main work to a larger
-  one.
-- Picking up and building a feature request against an existing app costs about the same again,
-  since it's a second complete cycle, not a partial one.
-- The environment-isolation problem described above cost **$0.0637 for a single one-word test** —
-  ordinary turns after that was fixed cost a few cents each. That's roughly 8 to 10 times more
-  than it should have, from a single avoidable mistake, and it's the clearest example in this
-  project of the same problem being both a reliability issue and a cost issue.
-- Each run of `make eval-routing` (three real planner conversations) cost roughly **$0.15 to
-  $0.25**. Each run of `make eval-build` (one full pipeline cycle, plus starting and checking a
-  container) cost roughly **$0.15 to $0.35**. `make eval-review` is the cheapest of the three, one
-  model call per test case, a few cents each.
-- Across every stage checked against the real system while it was being built, every automated
-  evaluation run, and every re-run after fixing a bug, this side of the ledger — the thing this
-  project actually builds — comes to roughly **$3 to $6** in total. A single real request going
-  through the whole process, start to finish, costs well under a dollar.
+**1. The factory's own model calls — planning, building, reviewing generated apps.** Recorded in
+`cost_events` per model call, so these figures are exact, not estimated:
+- One plan-build-review cycle for a small app: typically **$0.15 to $0.35**, split across
+  planning, build, and review — each stage uses a cheaper model for small sub-requests and a
+  larger one for the main work.
+- Picking up a feature request costs about the same again — it's a full second cycle.
+- The environment-isolation bug cost **$0.0637 for a single one-word test** — 8 to 10x normal, and
+  the clearest example of the same problem being both a reliability and a cost issue.
+- `make eval-routing` ≈ **$0.15–$0.25**. `make eval-build` ≈ **$0.15–$0.35**. `make eval-review` is
+  a few cents.
+- All of that together — every real check made while building this, every eval run, every re-run
+  after a bug fix — comes to roughly **$3 to $6**. One real request, start to finish, costs well
+  under a dollar.
 
-**2. The work of building the factory itself — this coding session.** For most of the time this
-project was being built, the assistant writing this code was itself running against the same API
-key, so that usage counts against the same total. Unlike the factory's own calls, this usage isn't
-recorded anywhere as a dollar figure — it had to be reconstructed from the raw per-message token
-counts in the coding session's own logs, across every session and sub-agent invocation from both
-days of this work (2026-08-24 and 2026-08-25), de-duplicated for the fact that a streamed message
-is written to the log multiple times as it arrives. Broken down by model, and priced at each
-model's published rate:
+**2. Building the factory itself — this coding session.** For most of this project's build time,
+the assistant writing the code ran against the same API key, so it counts toward the same total.
+Unlike the factory's own calls, none of this is recorded as a dollar figure — it's reconstructed
+from raw per-message token counts across every session and sub-agent from both build days
+(2026-08-24, 2026-08-25), de-duplicated for repeated streamed messages, then priced per model:
 
-| Model | Role | Calls | Cost |
-|---|---|---|---|
-| Sonnet 5 | main coding work | 1,058 | ~$133 |
-| Opus 4.7 | early planning, before this model list existed | 102 | ~$8 |
-| Opus 5 | main coding work (small slice) | 21 | ~$2 |
-| Fable 5 | advisor consultations | 3 | ~$9 |
-| Opus 5 | advisor consultations | 1 | ~$0.30 |
-| Sonnet 4.5 | legacy, negligible | 9 | ~$0.20 |
+| Model      | Role                                           | Calls | Cost   |
+| ---------- | ---------------------------------------------- | ----- | ------ |
+| Sonnet 5   | main coding work                               | 1,058 | ~$133  |
+| Opus 4.7   | early planning, before this model list existed | 102   | ~$8    |
+| Opus 5     | main coding work (small slice)                 | 21    | ~$2    |
+| Fable 5    | advisor consultations                          | 3     | ~$9    |
+| Opus 5     | advisor consultations                          | 1     | ~$0.30 |
+| Sonnet 4.5 | legacy, negligible                             | 9     | ~$0.20 |
 
-That comes to **roughly $153**. Almost all of it is Sonnet 5 cache reads — the coding session
-itself is long and re-sends a lot of accumulated context, and even at a steep cache discount that
-volume adds up. The advisor consultations (a second opinion sought a handful of times during
-planning) used a pricier model per token but only ran a few times, so they're a small slice
-despite the higher rate. This figure grows with every subsequent turn spent on this project — it
-was last reconstructed after the README rewrite and cleanup pass that followed the original cost
-estimate, not just the work up to registration.
+That comes to **roughly $153**. Almost all of it is Sonnet 5 cache reads — a long session re-sends
+a lot of accumulated context, and even at a steep cache discount that volume adds up. The advisor
+consultations used a pricier model but ran only a handful of times, so they stay a small slice
+despite the rate. This figure grows with every further turn spent on this project — last
+reconstructed after the README rewrite and cleanup pass, not just the work up to registration.
 
-**Combined**, the total cost against this API key for the whole engagement — writing the factory,
-plus everything the factory itself spent doing its job — is roughly **$155 to $160**. The
-overwhelming majority of that is the cost of the coding work itself, not the system it produced.
-That's expected for a project this size worked interactively over two days, but it's worth being
-explicit about: the "$3 to $6" figure is what this system costs to *operate*, and it is a small
-fraction of what it cost to *build*.
+**Combined**, the total cost against this key for the whole engagement is roughly **$155 to
+$160** — overwhelmingly the coding work itself, not the system it produced. Expected for a project
+worked interactively over two days, but worth being explicit: the "$3 to $6" figure is what this
+system costs to *operate*, a small fraction of what it cost to *build*.
 
 **What would reduce this cost further:**
-- **Reuse identical prompt content across turns.** The text given to the planner describing the
-  registered apps and the blueprint rules is rebuilt and resent on every turn. Keeping that text
-  identical across turns of the same conversation, and ideally across separate conversations until
-  the registry actually changes, would let the model provider's prompt caching apply to more of
-  the request instead of treating it as new content each time.
-- **Lower the per-stage limits.** The build step currently allows up to 30 internal turns, which
-  is far more than is ever needed to produce four files. A lower limit would cost nothing in
-  practice and would cap the worst case more tightly.
-- **Run evaluations together instead of separately.** `eval-routing`, `eval-review`, and
-  `eval-build` are currently three separate commands, each starting its own connection to the
-  model. Running them one after another inside the same process would let the model provider's
-  own caching carry over between them instead of starting cold each time.
-- **Catch environment-isolation mistakes automatically.** The single most expensive mistake in
-  this project's own operating cost was not a prompting problem — it was an environment
-  configuration problem. A check that fails immediately and clearly if the SDK's isolation
-  settings aren't in place, or if the SDK's subprocess environment looks larger than expected,
-  would catch the next version of this mistake before it costs money instead of after.
-- **On the coding-session side, the much larger cost:** almost all of the ~505 million input
-  tokens were cache reads, which is the caching system working as intended, not waste — but the
-  volume still points at a real lever: fewer, more targeted file reads and fewer long-running
-  agent turns per milestone would cut the number of times context gets rebuilt and re-sent. The
-  single highest-leverage change for a project like this would be scoping work into smaller,
-  more separable sessions so each one carries less accumulated history.
+- **Reuse identical prompt content across turns.** The planner's registered-apps/blueprint text is
+  rebuilt and resent every turn. Keeping it identical across turns — and conversations, until the
+  registry changes — would let prompt caching cover more of the request.
+- **Lower the per-stage turn limits.** Build allows up to 30 internal turns for four files. A
+  tighter cap costs nothing in practice and caps the worst case.
+- **Run evaluations in one process.** `eval-routing`, `eval-review`, and `eval-build` each start a
+  fresh connection today; running them back to back would carry caching over between them.
+- **Catch environment-isolation mistakes automatically.** The single most expensive mistake here
+  was an environment config problem, not a prompting one — a check that fails loudly if the SDK's
+  isolation settings are missing would catch the next one before it costs money.
+- **On the coding-session side**, almost all ~505 million input tokens were cache reads — the
+  caching working as intended, not waste — but the volume itself points at the real lever: fewer,
+  more targeted file reads and shorter agent turns per milestone. Scoping work into smaller,
+  separable sessions would be the single highest-leverage change.
