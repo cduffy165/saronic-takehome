@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from factory.agents.build_review_orchestrator import BuildReviewView, run_build_and_review
 from factory.agents.plan_orchestrator import PlanTurnView, continue_plan, start_plan
 from factory.registry.db import get_session
 from factory.registry.plan_runs import approve_plan, get_plan_run
@@ -35,11 +36,6 @@ class RunView(BaseModel):
     outcome: dict | None
     transcript: list[dict]
     plan_approved_at: str | None
-
-
-class ApproveResponse(BaseModel):
-    run_id: uuid.UUID
-    plan_approved_at: str
 
 
 @app.post("/plans", response_model=PlanTurnView)
@@ -78,10 +74,10 @@ def get_plan(run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)
     )
 
 
-@app.post("/plans/{run_id}/approve", response_model=ApproveResponse)
-def approve_plan_endpoint(
+@app.post("/plans/{run_id}/approve", response_model=BuildReviewView)
+async def approve_plan_endpoint(
     run_id: uuid.UUID, session: Annotated[Session, Depends(get_session)]
-) -> ApproveResponse:
+) -> BuildReviewView:
     run = get_plan_run(session, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="No such plan run.")
@@ -90,4 +86,4 @@ def approve_plan_endpoint(
     if run.plan_approved_at is not None:
         raise HTTPException(status_code=409, detail="This plan was already approved.")
     approve_plan(session, run)
-    return ApproveResponse(run_id=run.id, plan_approved_at=run.plan_approved_at.isoformat())
+    return await run_build_and_review(session, run)

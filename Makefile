@@ -24,9 +24,9 @@ eval-hostile:
 	@echo "eval-hostile: not yet implemented (M4)"
 
 eval-review:
-	@echo "eval-review: not yet implemented (M5)"
+	docker compose exec api uv run python -m evals.run_review_eval
 
 eval-build:
-	@echo "eval-build: not yet implemented (M5)"
+	docker compose exec api uv run python -m evals.run_build_eval
 
 eval: eval-routing eval-hostile eval-review eval-build

@@ -69,10 +69,13 @@ def _render_outcome(outcome: dict | None, run_id: str) -> None:
         for cap in outcome["capabilities"]:
             st.write(f"- **{cap['slug']}** — {cap['description']}")
         if st.button("Approve — proceed to Build"):
-            with httpx.Client(base_url=API_BASE_URL, timeout=30.0) as client:
+            with (
+                st.spinner("Building and reviewing — this can take a minute..."),
+                httpx.Client(base_url=API_BASE_URL, timeout=300.0) as client,
+            ):
                 approve_response = client.post(f"/plans/{run_id}/approve")
             if approve_response.status_code == 200:
-                st.success("Approved. Build isn't implemented yet (M5) — this plan is queued.")
+                _render_build_review_result(approve_response.json())
             else:
                 st.error(approve_response.json().get("detail", "Approval failed."))
 
@@ -91,3 +94,16 @@ def _render_outcome(outcome: dict | None, run_id: str) -> None:
             f"Ran out of planning turns ({outcome['turns_used']}) before reaching a decision. "
             f"Still needed: {outcome['still_needed']}"
         )
+
+
+def _render_build_review_result(result: dict) -> None:
+    if result["success"]:
+        st.success(f"Built and reviewed in {result['attempts']} attempt(s). {result['summary']}")
+        st.write(f"Repo: `{result['repo_path']}`")
+        st.write(f"Running at: http://localhost:{result['container_port']}")
+    else:
+        st.error(f"Failed after {result['attempts']} attempt(s): {result['summary']}")
+    if result["findings"]:
+        st.write("Findings:")
+        for finding in result["findings"]:
+            st.write(f"- [{finding['severity']}] {finding['category']}: {finding['description']}")

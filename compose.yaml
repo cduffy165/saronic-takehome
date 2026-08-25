@@ -49,6 +49,19 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-factory}:${POSTGRES_PASSWORD:-factory}@postgres:5432/${POSTGRES_DB:-factory}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env — required to run the Plan session}
+      # Generated containers are attached to this network explicitly (not the
+      # docker daemon's plain default "bridge") so api can reach them by
+      # internal IP — see factory/agents/container_runtime.py.
+      FACTORY_NETWORK: factory-net
+    volumes:
+      # Build writes generated_apps/<slug>/ here; bind-mounting (not a named
+      # volume) is what satisfies "code lands somewhere humans can edit it" —
+      # it's real files on the host, not trapped in the container.
+      - ./generated_apps:/app/generated_apps
+      # Deterministic build/run of generated apps talks to the HOST's docker
+      # daemon over this socket (factory/agents/container_runtime.py) — an LLM
+      # never gets shell/docker access; only our own code does.
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8000:8000"
     depends_on:
@@ -89,3 +102,10 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  default:
+    # Named explicitly (rather than the project-name-derived default) so
+    # factory/agents/container_runtime.py can attach generated containers to a
+    # stable, known network name.
+    name: factory-net

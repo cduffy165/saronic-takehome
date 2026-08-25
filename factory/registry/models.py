@@ -114,6 +114,14 @@ class Run(Base):
     plan_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
     """Gate 1: set when a human approves a ``proceed`` plan, before Build spend."""
     requester_sub: Mapped[str | None] = mapped_column(default=None)
+    plan_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), default=None
+    )
+    """For ``build_review`` runs: the ``plan`` run whose approved outcome it builds."""
+    repo_path: Mapped[str | None] = mapped_column(default=None)
+    """For ``build_review`` runs: the generated app's directory, once Build succeeds."""
+    container_port: Mapped[int | None] = mapped_column(default=None)
+    """For ``build_review`` runs: the allocated host port, once the container is running."""
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App | None] = relationship(back_populates="runs", foreign_keys=[app_id])
