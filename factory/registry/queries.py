@@ -7,7 +7,7 @@ and capability lookups are deterministic and testable against a fixed registry s
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from factory.registry.models import App, Capability
+from factory.registry.models import App, AppOwner, Capability
 
 
 def find_apps_by_capability_slugs(session: Session, slugs: list[str]) -> list[App]:
@@ -39,4 +39,12 @@ def get_app_by_slug(session: Session, slug: str) -> App | None:
 
 def list_apps(session: Session) -> list[App]:
     stmt = select(App).order_by(App.name)
+    return list(session.scalars(stmt))
+
+
+def find_apps_owned_by(session: Session, keycloak_sub: str) -> list[App]:
+    """Apps where the given Keycloak subject is a named owner (business or technical)."""
+    stmt = (
+        select(App).join(AppOwner).where(AppOwner.keycloak_sub == keycloak_sub).order_by(App.name)
+    )
     return list(session.scalars(stmt))

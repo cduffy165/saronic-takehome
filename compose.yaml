@@ -15,6 +15,33 @@ services:
       timeout: 5s
       retries: 10
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      # Pinning the issuer to one hostname makes it resolvable identically from the
+      # browser (via *.localhost auto-loopback, see README) and from the ui
+      # container (via the extra_hosts host-gateway mapping below) — otherwise the
+      # browser would see "localhost" and the container "keycloak", and OIDC
+      # discovery/issuer validation would fail on the mismatch.
+      KC_HOSTNAME: auth.localhost
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    ports:
+      # Not loopback-only, unlike postgres above: the ui container reaches this
+      # port via the host-gateway (extra_hosts, below), which arrives as a
+      # regular external connection, not through the loopback interface.
+      - "8080:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: .
@@ -39,10 +66,19 @@ services:
     environment:
       API_BASE_URL: http://api:8000
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-factory}:${POSTGRES_PASSWORD:-factory}@postgres:5432/${POSTGRES_DB:-factory}
+    extra_hosts:
+      # Makes "auth.localhost" resolve, from inside this container, to the host
+      # machine — landing back on Keycloak's published port. Pairs with
+      # KC_HOSTNAME above so the issuer is identical from the browser and here.
+      - "auth.localhost:host-gateway"
+    volumes:
+      - ./.streamlit/secrets.toml:/app/.streamlit/secrets.toml:ro
     ports:
       - "8501:8501"
     depends_on:
       api:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]

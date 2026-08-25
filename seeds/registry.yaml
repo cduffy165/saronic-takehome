@@ -5,6 +5,13 @@
 # state captured from two real end-to-end factory runs in distinct domains,
 # and seeds/repos/ gets the corresponding app repos so feature-request pickup
 # has something to build against.
+#
+# owners.keycloak_sub values are the fixed subject UUIDs assigned to the
+# fixture users in keycloak/realm-export.json:
+#   11111111-1111-1111-1111-111111111111 = alice
+#   22222222-2222-2222-2222-222222222222 = bob
+#   33333333-3333-3333-3333-333333333333 = carol
+#   44444444-4444-4444-4444-444444444444 = dave
 apps:
   - slug: expense-approval-tracker
     name: Expense Approval Tracker
@@ -12,9 +19,9 @@ apps:
     blueprint_id: streamlit-small
     complexity_score: 2
     owners:
-      - keycloak_sub: alice
+      - keycloak_sub: 11111111-1111-1111-1111-111111111111 # alice
         role: business
-      - keycloak_sub: bob
+      - keycloak_sub: 22222222-2222-2222-2222-222222222222 # bob
         role: technical
     capabilities:
       - slug: submit_expense
@@ -28,9 +35,9 @@ apps:
     blueprint_id: streamlit-small
     complexity_score: 2
     owners:
-      - keycloak_sub: carol
+      - keycloak_sub: 33333333-3333-3333-3333-333333333333 # carol
         role: business
-      - keycloak_sub: dave
+      - keycloak_sub: 44444444-4444-4444-4444-444444444444 # dave
         role: technical
     capabilities:
       - slug: log_sample_intake
