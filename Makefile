@@ -1,4 +1,10 @@
-.PHONY: seed migrate lint test eval gitea-init
+.PHONY: up seed migrate lint test eval gitea-init
+
+# One-command bring-up: builds and starts every service, mints and stores a
+# Gitea token, runs migrations, and loads the registry seed. Docker is the
+# only requirement — see scripts/bootstrap.sh for what it does.
+up:
+	./scripts/bootstrap.sh
 
 seed:
 	uv run python -m factory.registry.seed

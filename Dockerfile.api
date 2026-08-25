@@ -21,10 +21,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY README.md ./
+COPY README.md alembic.ini ./
 COPY factory ./factory
 COPY blueprints ./blueprints
 COPY evals ./evals
+COPY seeds ./seeds
 
 RUN uv sync --frozen --no-dev
 

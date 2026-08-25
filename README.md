@@ -178,24 +178,23 @@ tests that stood in for the real systems instead of using them.
 
 ## Getting it running
 
-```
-cp .env.example .env                                          # fill in ANTHROPIC_API_KEY
-cp .streamlit/secrets.toml.example .streamlit/secrets.toml    # dev-only values, see Identity below
-docker compose up --build
-make gitea-init                                                # prints an access token
-```
-
-Paste the printed token into `.env` as `GITEA_TOKEN`, then:
+Docker is the only requirement on your machine — no local Python or `uv` install needed:
 
 ```
-docker compose up -d api                                       # picks up the new token
-uv run alembic upgrade head
-make seed
+cp .env.example .env    # fill in ANTHROPIC_API_KEY, the one thing nothing can do for you
+make up
 ```
 
-- API: http://localhost:8000/health
+That single command builds and starts every service, creates the Gitea account and access token
+and stores it, and loads the database schema and the seeded example apps. It takes a few minutes
+the first time (building images) and is safe to run again later — re-running it just confirms
+everything is already in place.
+
+When it finishes, you'll see:
+
 - UI: http://localhost:8501 (log in as `alice`/`alice`, `bob`/`bob`, `carol`/`carol`, or
   `dave`/`dave` — see `keycloak/realm-export.json`)
+- API: http://localhost:8000/health
 - Keycloak admin console: http://auth.localhost:8080 (`admin`/`admin`)
 - Gitea: http://localhost:3000 (`factory` / whatever `GITEA_PASSWORD` you set, default
   `factory-dev-password`)
@@ -204,11 +203,23 @@ If your browser doesn't resolve `auth.localhost` to `127.0.0.1` on its own (most
 `.localhost` is reserved to always mean the local machine), add `127.0.0.1 auth.localhost` to
 your hosts file.
 
-`GITEA_TOKEN` is not required at `docker compose up` time the way `ANTHROPIC_API_KEY` is, because
-generating it requires Gitea to already be running — requiring it up front would make it
-impossible to ever start Gitea in the first place. It's fine for it to be empty until the first
-build; a missing token then causes a clear, specific error at that point instead of blocking every
-other service from starting.
+**What `make up` is actually doing** (`scripts/bootstrap.sh`), for anyone who wants to run a step
+by hand or knows why it might need to be redone:
+1. Copies `.env.example` to `.env` and `.streamlit/secrets.toml.example` to
+   `.streamlit/secrets.toml` if they don't exist yet (dev-only values, see Identity below), then
+   stops with a clear message if `ANTHROPIC_API_KEY` still looks like the placeholder.
+2. `docker compose up -d --build` — starts Postgres, Keycloak, Gitea, `api`, and `ui`.
+3. Waits for Gitea to report healthy, then creates the `factory` service account and mints an
+   access token — the same two steps `make gitea-init` used to require you to do and then paste in
+   by hand — and writes it into `.env` as `GITEA_TOKEN`.
+4. Restarts `api` so it picks up the new token.
+5. Runs `alembic upgrade head` and the registry seed loader, both inside the `api` container, so
+   nothing on the host needs Python or `uv` installed at all.
+
+`GITEA_TOKEN` isn't required up front the way `ANTHROPIC_API_KEY` is, because generating it
+requires Gitea to already be running — requiring it up front would make it impossible to ever
+start Gitea in the first place. That's exactly the ordering problem step 3 above exists to handle
+automatically.
 
 ## Identity and login
 
