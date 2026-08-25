@@ -119,14 +119,11 @@ def _validated_owner_sub(app, owner_sub: str) -> str:
     app.owners: legacy or hand-inserted rows can carry non-UUID values, and
     trusting "it's in the table" alone would let that garbage validate a
     garbage answer right back."""
-    known_subs = {o.keycloak_sub for o in app.owners if _is_keycloak_sub(o.keycloak_sub)}
-    if _is_keycloak_sub(owner_sub) and owner_sub in known_subs:
+    valid_owners = [o for o in app.owners if _is_keycloak_sub(o.keycloak_sub)]
+    if _is_keycloak_sub(owner_sub) and any(o.keycloak_sub == owner_sub for o in valid_owners):
         return owner_sub
-    business_owner = next(
-        (o for o in app.owners if o.role == "business" and _is_keycloak_sub(o.keycloak_sub)), None
-    )
-    fallback = business_owner or next(
-        (o for o in app.owners if _is_keycloak_sub(o.keycloak_sub)), None
+    fallback = next((o for o in valid_owners if o.role == "business"), None) or next(
+        iter(valid_owners), None
     )
     return fallback.keycloak_sub if fallback else owner_sub
 

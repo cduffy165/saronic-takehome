@@ -14,25 +14,28 @@ catch the specific, nameable Python security antipatterns they're built for.
 
 import json
 import subprocess
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from factory.agents.build_review_schema import ReviewFinding
 
 _BANDIT_SEVERITY = {"HIGH": "high", "MEDIUM": "medium", "LOW": "low"}
 
+_BANDIT_CMD = ["bandit", "-r", "-f", "json"]
+_RUFF_CMD = ["ruff", "check", "--select", "S", "--no-cache", "--output-format", "json"]
 
-def _run_bandit(root: Path) -> list[ReviewFinding]:
-    result = subprocess.run(
-        ["bandit", "-r", "-f", "json", str(root)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if not result.stdout:
+
+def _run_tool(cmd: list[str], root: Path) -> str:
+    result = subprocess.run([*cmd, str(root)], capture_output=True, text=True, check=False)
+    return result.stdout
+
+
+def _bandit_findings(root: Path, stdout: str) -> list[ReviewFinding]:
+    if not stdout:
         return []
-    payload = json.loads(result.stdout)
     findings = []
-    for issue in payload.get("results", []):
+    for issue in json.loads(stdout).get("results", []):
         rel = Path(issue["filename"]).relative_to(root)
         findings.append(
             ReviewFinding(
@@ -47,18 +50,11 @@ def _run_bandit(root: Path) -> list[ReviewFinding]:
     return findings
 
 
-def _run_ruff_security(root: Path) -> list[ReviewFinding]:
-    result = subprocess.run(
-        ["ruff", "check", "--select", "S", "--no-cache", "--output-format", "json", str(root)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if not result.stdout:
+def _ruff_findings(root: Path, stdout: str) -> list[ReviewFinding]:
+    if not stdout:
         return []
-    issues = json.loads(result.stdout)
     findings = []
-    for issue in issues:
+    for issue in json.loads(stdout):
         rel = Path(issue["filename"]).relative_to(root)
         findings.append(
             ReviewFinding(
@@ -73,4 +69,16 @@ def _run_ruff_security(root: Path) -> list[ReviewFinding]:
 
 
 def scan_directory(root: Path) -> list[ReviewFinding]:
-    return _run_bandit(root) + _run_ruff_security(root)
+    # Two independent subprocess calls with nothing to share — run concurrently
+    # rather than paying bandit's and ruff's process-spawn cost back to back.
+    tools: list[tuple[list[str], Callable[[Path, str], list[ReviewFinding]]]] = [
+        (_BANDIT_CMD, _bandit_findings),
+        (_RUFF_CMD, _ruff_findings),
+    ]
+    with ThreadPoolExecutor(max_workers=len(tools)) as pool:
+        outputs = list(pool.map(lambda t: _run_tool(t[0], root), tools))
+    return [
+        finding
+        for (_, parse), stdout in zip(tools, outputs, strict=True)
+        for finding in parse(root, stdout)
+    ]

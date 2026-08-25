@@ -1,40 +1,37 @@
+import base64
 from unittest.mock import patch
 
 import pytest
 
-from factory.agents.gitea_client import GiteaSettings, _with_credentials, push
+from factory.agents.gitea_client import GiteaSettings, _basic_auth_header, push
 
 
-def test_with_credentials_embeds_username_and_token() -> None:
-    url = _with_credentials("http://gitea:3000/factory/my-app.git", "factory", "abc123")
+def test_basic_auth_header_encodes_username_and_token() -> None:
+    header = _basic_auth_header("factory", "abc123")
 
-    assert url == "http://factory:abc123@gitea:3000/factory/my-app.git"
-
-
-def test_with_credentials_does_not_duplicate_scheme_separator() -> None:
-    url = _with_credentials("http://gitea:3000/factory/my-app.git", "factory", "abc123")
-
-    assert url.count("://") == 1
-    assert url.startswith("http://factory:abc123@")
+    assert header == f"Authorization: Basic {base64.b64encode(b'factory:abc123').decode()}"
 
 
-def test_push_scrubs_token_from_failed_push_error(tmp_path, monkeypatch) -> None:
-    """Real git/libcurl already redacts credentials from its own error text in
-    the failure modes tested live against a real Gitea instance, but this
-    scrub is defense-in-depth against any version/transport that doesn't —
-    verified directly here without relying on a particular git build's
-    behavior."""
+def test_push_never_embeds_token_in_the_push_destination(tmp_path, monkeypatch) -> None:
+    """The token must reach git only via GIT_CONFIG_VALUE_0 in the subprocess
+    environment, never as part of the destination URL passed on argv — an
+    embedded-in-URL token can be echoed back verbatim in git's own
+    fatal-error text on a failed push, as an earlier version of this
+    function did."""
     import subprocess
 
     settings = GiteaSettings(
         gitea_url="http://gitea:3000", gitea_username="factory", gitea_token="supersecrettoken"
     )
-    authenticated_url = "http://factory:supersecrettoken@gitea:3000/factory/my-app.git"
+    seen_cmds = []
 
     def fake_run(cmd, **kwargs):
+        seen_cmds.append((cmd, kwargs.get("env")))
         if cmd[:2] == ["git", "push"]:
             raise subprocess.CalledProcessError(
-                1, cmd, stderr=f"fatal: unable to access '{authenticated_url}/': error"
+                1,
+                cmd,
+                stderr="fatal: unable to access 'http://gitea:3000/factory/my-app.git/': error",
             )
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -49,4 +46,9 @@ def test_push_scrubs_token_from_failed_push_error(tmp_path, monkeypatch) -> None
         push(tmp_path, "my-app", settings)
 
     assert "supersecrettoken" not in exc_info.value.stderr
-    assert "http://gitea:3000/factory/my-app.git" in exc_info.value.stderr
+    push_cmd, push_env = seen_cmds[0]
+    assert push_cmd == ["git", "push", "http://gitea:3000/factory/my-app.git", "HEAD:main"]
+    assert "supersecrettoken" not in " ".join(push_cmd)
+    assert push_env["GIT_CONFIG_KEY_0"] == "http.extraHeader"
+    expected_creds = base64.b64encode(b"factory:supersecrettoken").decode()
+    assert push_env["GIT_CONFIG_VALUE_0"] == f"Authorization: Basic {expected_creds}"

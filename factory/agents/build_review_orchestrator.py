@@ -10,6 +10,7 @@ app in that case. The pickup path never wipes the existing directory; a
 failed attempt is discarded via `git checkout`/`clean`, not `rm -rf`.
 """
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -235,18 +236,25 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
         # over again (observed live). So pickup stays root-owned until one of
         # the return points below.
 
-        static_findings = scan_statically(app_dir)
-        # Only high-severity static-analysis findings block the pipeline —
-        # bandit/ruff's own severity grading already distinguishes "seems
-        # safe" (e.g. a literal shell command) from genuinely dangerous
-        # patterns (e.g. untrusted input in a shell command). Medium/low
-        # findings are quality signal for the human, not a build blocker.
-        blocking_static_findings = [f for f in static_findings if f.severity == "high"]
+        # Secrets and static analysis are two independent subprocess-based
+        # scans over the same directory — run them concurrently rather than
+        # paying their process-spawn cost back to back on every attempt.
+        secrets_findings, static_findings = await asyncio.gather(
+            asyncio.to_thread(scan_for_secrets, app_dir),
+            asyncio.to_thread(scan_statically, app_dir),
+        )
+        # One severity policy applied uniformly to every deterministic scanner
+        # feeding the gate: "high" blocks, anything lower is quality signal
+        # for the human rather than a build blocker. Secrets findings are
+        # always "high" (any hit is a hard stop); bandit/ruff's own severity
+        # grading is what distinguishes "seems safe" (e.g. a literal shell
+        # command) from genuinely dangerous patterns (e.g. untrusted input in
+        # a shell command) among the static-analysis findings.
+        deterministic_findings = secrets_findings + static_findings
+        blocking_findings = [f for f in deterministic_findings if f.severity == "high"]
         surfaced_static_findings = [f for f in static_findings if f.severity != "high"]
 
-        gate_findings = (
-            _check_required_files(app_dir) + scan_for_secrets(app_dir) + blocking_static_findings
-        )
+        gate_findings = _check_required_files(app_dir) + blocking_findings
         if gate_findings:
             all_findings = gate_findings
             feedback = _feedback_text(gate_findings)
@@ -286,12 +294,14 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
             # operation against the same root-owned working tree.
             if is_pickup:
                 _git_commit_change(app_dir, f"Add capability: {plan['name']}")
-                repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
-                repo_path, container_port = _dockerize(app_dir, slug, target_app.container_port)
             else:
                 _git_init_and_commit(app_dir)
-                repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
-                repo_path, container_port = _dockerize(app_dir, slug)
+            repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
+            repo_path, container_port = (
+                _dockerize(app_dir, slug, target_app.container_port)
+                if is_pickup
+                else _dockerize(app_dir, slug)
+            )
         except Exception as exc:  # noqa: BLE001 - any docker/git/gitea failure is a retryable build failure
             detail = getattr(exc, "stderr", None) or str(exc)
             all_findings = [

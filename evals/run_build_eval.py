@@ -12,7 +12,6 @@ import time
 import urllib.error
 import urllib.request
 
-import httpx
 from docker import DockerClient
 
 from factory.agents.build_review_orchestrator import (
@@ -27,7 +26,7 @@ from factory.agents.container_runtime import (
     get_internal_address,
     stop_and_remove,
 )
-from factory.agents.gitea_client import get_gitea_settings
+from factory.agents.gitea_client import delete_repo, get_gitea_settings
 from factory.registry.db import get_session_factory
 from factory.registry.models import Run
 
@@ -63,12 +62,7 @@ def _check_network_isolation(client: DockerClient, slug: str) -> tuple[bool, str
 
 
 def _delete_gitea_repo(slug: str) -> None:
-    settings = get_gitea_settings()
-    httpx.delete(
-        f"{settings.gitea_url}/api/v1/repos/{settings.gitea_username}/{slug}",
-        headers={"Authorization": f"token {settings.gitea_token}"},
-        timeout=10.0,
-    )
+    delete_repo(slug, get_gitea_settings())
 
 
 def _wait_for_health(address: str, timeout_s: float = 30.0) -> bool:
