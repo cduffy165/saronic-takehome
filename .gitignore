@@ -1,6 +1,7 @@
 .env
 *.env
 .env*
+!.env.example
 
 # Generated app repos are runtime artifacts, not factory source
 generated_apps/*

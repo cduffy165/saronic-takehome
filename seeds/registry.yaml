@@ -1,0 +1,39 @@
+# Placeholder registry seed.
+#
+# This is synthetic content for exercising the loader and the routing/hostile
+# evals during development. Per the plan (M8), this file gets replaced with
+# state captured from two real end-to-end factory runs in distinct domains,
+# and seeds/repos/ gets the corresponding app repos so feature-request pickup
+# has something to build against.
+apps:
+  - slug: expense-approval-tracker
+    name: Expense Approval Tracker
+    purpose: Track submitted expense reports and their approval status.
+    blueprint_id: streamlit-small
+    complexity_score: 2
+    owners:
+      - keycloak_sub: alice
+        role: business
+      - keycloak_sub: bob
+        role: technical
+    capabilities:
+      - slug: submit_expense
+        description: Submit an expense report with amount and category.
+      - slug: view_approval_status
+        description: View the current approval status of a submitted report.
+
+  - slug: lab-sample-intake-log
+    name: Lab Sample Intake Log
+    purpose: Log incoming lab samples and list them by intake date.
+    blueprint_id: streamlit-small
+    complexity_score: 2
+    owners:
+      - keycloak_sub: carol
+        role: business
+      - keycloak_sub: dave
+        role: technical
+    capabilities:
+      - slug: log_sample_intake
+        description: Record a new sample with an intake timestamp.
+      - slug: list_samples_by_date
+        description: List logged samples filtered by intake date.
