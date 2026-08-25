@@ -51,8 +51,8 @@ def test_validated_owner_sub_returns_input_when_app_has_no_owners() -> None:
 
 def test_validated_owner_sub_rejects_stale_non_uuid_row_even_when_it_matches() -> None:
     """Regression test: a live eval run hit exactly this — app_owners had a
-    leftover non-UUID row ("carol", from pre-M6 test data written before
-    requester_sub was a verified Keycloak sub) alongside the real UUID owner.
+    leftover non-UUID row ("carol", written before requester identity was
+    backed by a verified Keycloak subject) alongside the real UUID owner.
     The model echoed "carol" back, and the old check ("is it in app.owners at
     all?") accepted it because the stale row made it technically present.
     Real owners are always UUIDs; this must fall back to a real one instead."""

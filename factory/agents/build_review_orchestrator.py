@@ -5,9 +5,9 @@ required-files check and the secrets scan, then Review — nothing generated is
 ever git-committed or run as a container until it clears all three.
 
 Two modes: a fresh app (plan_run.app_id is None), or a feature-request pickup
-(M7) modifying an app that already exists — plan_run.app_id is set to the
-target app in that case. The pickup path never wipes the existing directory;
-a failed attempt is discarded via `git checkout`/`clean`, not `rm -rf`.
+modifying an app that already exists — plan_run.app_id is set to the target
+app in that case. The pickup path never wipes the existing directory; a
+failed attempt is discarded via `git checkout`/`clean`, not `rm -rf`.
 """
 
 import os

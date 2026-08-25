@@ -15,7 +15,7 @@ class BuildSettings(BaseSettings):
     review_max_turns: int = 6
     review_max_budget_usd: float = 0.5
 
-    # 1 retry, per the plan.
+    # 1 retry: a run gets two attempts total before it's reported as failed.
     max_build_review_attempts: int = 2
 
     # The api container runs as root (needed for docker socket access), so

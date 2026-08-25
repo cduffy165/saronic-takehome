@@ -144,8 +144,8 @@ def approve_build_endpoint(
     approve_build(session, build_review_run)
 
     if build_review_run.app_id is not None:
-        # Feature-request pickup (M7): app_id was set at plan creation, not by
-        # a prior registration — append to the existing app instead of
+        # This is a feature-request pickup: app_id was set at plan creation,
+        # not by a prior registration — append to the existing app instead of
         # creating a new one.
         existing_app = session.get(App, build_review_run.app_id)
         app_row = register_feature(session, plan_run, build_review_run, existing_app)

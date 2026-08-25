@@ -133,7 +133,7 @@ def _validated_owner_sub(app, owner_sub: str) -> str:
 
 def _finalize(session: Session, run: Run, outcome: dict, reply_text: str) -> PlanTurnView:
     kind = outcome["outcome"]
-    # Preserve run.app_id by default: for a feature-request pickup (M7), it was
+    # Preserve run.app_id by default: for a feature-request pickup, it was
     # already set to the target app at creation, and a "proceed" outcome here
     # must not clobber that back to None. The branches below only override it
     # for outcomes that resolve a *different* app lookup (route_to_human,

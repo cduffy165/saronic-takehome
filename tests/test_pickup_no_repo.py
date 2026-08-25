@@ -7,8 +7,9 @@ from factory.registry.models import App, Run
 
 
 def test_pickup_against_app_with_no_repo_on_disk_fails_legibly(db_session: Session) -> None:
-    """Seeded apps (until M8) have no real repo_path directory — pickup must
-    fail with a clear finding, not crash or spend on a Build call."""
+    """Apps loaded from the registry seed file (not built through the pipeline)
+    have no real repo_path directory on disk — pickup must fail with a clear
+    finding, not crash or spend on a Build call."""
     app = App(
         slug="seeded-app-no-repo",
         name="Seeded App",

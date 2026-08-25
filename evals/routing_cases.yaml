@@ -1,6 +1,6 @@
 # Routing eval fixtures against the seeded registry (seeds/registry.yaml).
-# Small representative set for now — scaling to the plan's full ~12 cases is
-# mechanical: add more entries in this same shape.
+# Small representative set for now — scaling to a larger set is mechanical:
+# add more entries in this same shape.
 cases:
   - id: proceed_greenfield_small_app
     requester_sub: 11111111-1111-1111-1111-111111111111 # alice

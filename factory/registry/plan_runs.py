@@ -16,7 +16,7 @@ def create_plan_run(
     target_app_id: uuid.UUID | None = None,
     feature_request_id: uuid.UUID | None = None,
 ) -> Run:
-    """``target_app_id`` marks a feature-request pickup (M7): Build/Review then
+    """``target_app_id`` marks a feature-request pickup: Build/Review then
     modify that app's existing repo instead of writing a fresh one."""
     run = Run(
         kind="plan",

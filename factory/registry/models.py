@@ -129,7 +129,7 @@ class Run(Base):
     container_port: Mapped[int | None] = mapped_column(default=None)
     # Gate 2: set when a human approves a successful build for registration.
     build_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
-    # For "plan" runs started via feature-request pickup (M7): which request this
+    # For "plan" runs started via feature-request pickup: which request this
     # run is fulfilling — an app can have more than one open request.
     feature_request_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("feature_requests.id", ondelete="SET NULL"), default=None

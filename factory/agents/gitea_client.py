@@ -47,10 +47,37 @@ def _with_credentials(clone_url: str, username: str, token: str) -> str:
 
 def push(app_dir: Path, slug: str, settings: GiteaSettings) -> str:
     """Ensures the repo exists, then pushes app_dir's current HEAD to it.
-    Returns the clone URL (without the embedded token) for storage/display."""
-    clone_url = ensure_repo_exists(slug, settings)
+    Returns the clone URL (without the embedded token) for storage/display.
 
+    The token is passed to `git push` as a one-shot destination URL, never
+    stored as a remote — `git remote add` would write it straight into
+    `.git/config` in plaintext, where it would still be sitting after this
+    directory is later chowned to the host user (flagged by security review;
+    an earlier version of this function did exactly that)."""
+    clone_url = ensure_repo_exists(slug, settings)
     authenticated_url = _with_credentials(clone_url, settings.gitea_username, settings.gitea_token)
+
+    try:
+        subprocess.run(
+            ["git", "push", authenticated_url, "HEAD:main"],
+            cwd=app_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        # git's own fatal-error text can echo the failed remote URL verbatim
+        # (e.g. "fatal: unable to access 'http://factory:<token>@...'") — that
+        # URL carries the token, and this exception's .stderr is what
+        # build_review_orchestrator surfaces to the requester as a finding on
+        # failure. Scrub before it ever leaves this function, not at whatever
+        # call site happens to consume it later.
+        if exc.stderr:
+            exc.stderr = exc.stderr.replace(authenticated_url, clone_url)
+        raise
+
+    # The stored remote (if any human or future run inspects it) points at the
+    # plain, token-less URL — never the credentialed one used above.
     subprocess.run(
         ["git", "remote", "remove", "origin"],
         cwd=app_dir,
@@ -59,14 +86,7 @@ def push(app_dir: Path, slug: str, settings: GiteaSettings) -> str:
         check=False,
     )
     subprocess.run(
-        ["git", "remote", "add", "origin", authenticated_url],
-        cwd=app_dir,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    subprocess.run(
-        ["git", "push", "origin", "HEAD:main"],
+        ["git", "remote", "add", "origin", clone_url],
         cwd=app_dir,
         check=True,
         capture_output=True,
