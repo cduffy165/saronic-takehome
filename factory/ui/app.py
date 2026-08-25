@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from factory.ui import registry_page
+from factory.ui import plan_page, registry_page
 
 st.set_page_config(page_title="App Factory", layout="wide")
 st.title("App Factory")
@@ -17,7 +17,9 @@ with st.sidebar:
         f"Signed in as **{st.user.get('preferred_username', st.user.get('name', 'unknown'))}**"
     )
     st.button("Log out", on_click=st.logout)
+    page = st.radio("View", ["Request an App", "Registry"])
 
-st.caption("Request intake, plan chat, and approval gates land in later milestones.")
-
-registry_page.render(current_user_sub=st.user.sub)
+if page == "Request an App":
+    plan_page.render(current_user_sub=st.user.sub)
+else:
+    registry_page.render(current_user_sub=st.user.sub)

@@ -1,0 +1,33 @@
+# Architectural blueprint supplied by IT. One for the POC per the plan: a small
+# Streamlit app on Docker. The scope rating caps how much a single request can
+# one-shot out of this pattern — score > max_score routes to a human instead of
+# building.
+id: streamlit-small
+name: Small Streamlit app on Docker
+description: >
+  A single-container Streamlit app backed by SQLite or in-memory state. No
+  auth, no background jobs, no external integrations beyond at most one.
+max_score: 2
+scale:
+  1:
+    label: single view over one static or uploaded dataset
+    examples:
+      - "chart our monthly headcount CSV"
+      - "search a static parts list"
+  2:
+    label: a few views plus light CRUD, one data source, at most one external integration
+    examples:
+      - "log lab samples and list them by intake date"
+      - "pull tickets from one API and let people triage them"
+  3:
+    label: multiple user roles, or multiple external integrations
+    examples:
+      - "an approval workflow where managers see different views than requesters"
+  4:
+    label: workflow state machines, scheduled jobs, notifications
+    examples:
+      - "auto-remind approvers after 3 days and escalate after 7"
+  5:
+    label: platform-scale, multi-team, SLAs
+    examples:
+      - "a system multiple departments depend on with uptime guarantees"

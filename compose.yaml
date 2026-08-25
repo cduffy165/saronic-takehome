@@ -48,6 +48,7 @@ services:
       dockerfile: Dockerfile.api
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-factory}:${POSTGRES_PASSWORD:-factory}@postgres:5432/${POSTGRES_DB:-factory}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env — required to run the Plan session}
     ports:
       - "8000:8000"
     depends_on:

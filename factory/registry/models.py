@@ -107,6 +107,13 @@ class Run(Base):
     """For ``plan`` runs: ``proceed`` | ``route_to_human`` | ``feature_request`` | ``incomplete``."""
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     review: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    turns_used: Mapped[int] = mapped_column(default=0)
+    """Planner turn count, enforced against the cap independently of the SDK's own
+    per-connection ``max_turns`` — each HTTP request resumes the session as a new
+    SDK client, so the cap has to be tracked here to hold across requests."""
+    plan_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
+    """Gate 1: set when a human approves a ``proceed`` plan, before Build spend."""
+    requester_sub: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App | None] = relationship(back_populates="runs", foreign_keys=[app_id])

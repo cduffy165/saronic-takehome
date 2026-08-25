@@ -1,0 +1,42 @@
+# Routing eval fixtures against the seeded registry (seeds/registry.yaml).
+# Small representative set for now — scaling to the plan's full ~12 cases is
+# mechanical: add more entries in this same shape.
+cases:
+  - id: proceed_greenfield_small_app
+    requester_sub: 11111111-1111-1111-1111-111111111111 # alice
+    opening_message: >
+      I need a small internal app to log office supply requests. Fields: item_name
+      (text), quantity (number), requester (text), status (text, defaults to
+      requested). Only the office manager edits status; requesters just submit.
+      One list view filterable by status, one submit form. No auth beyond what
+      the platform already provides, no external integrations, no notifications,
+      single team.
+    answers:
+      finalize: Yes, please finalize now — you have everything you need.
+    fallback_reply: That's fine as described — please finalize the plan now.
+    expected_outcome: proceed
+
+  - id: route_to_human_overlaps_lab_sample_app
+    requester_sub: 22222222-2222-2222-2222-222222222222 # bob
+    opening_message: >
+      I need an app to log lab samples as they come in and list them by intake
+      date.
+    answers:
+      finalize: Yes, please finalize now.
+    fallback_reply: Please check the registry and finalize the plan now.
+    expected_outcome: route_to_human
+    expected_owner_sub: 33333333-3333-3333-3333-333333333333 # carol, business owner
+
+  - id: feature_request_against_expense_tracker
+    requester_sub: 44444444-4444-4444-4444-444444444444 # dave
+    opening_message: >
+      Can we add email notifications to the expense-approval-tracker app? I'd
+      like an email sent whenever a report is approved. This isn't a new app,
+      it's a change to that existing one.
+    answers:
+      slug: The app's slug is exactly "expense-approval-tracker".
+      which app: The app's slug is exactly "expense-approval-tracker".
+    fallback_reply: >
+      Please file this as a feature request against expense-approval-tracker now.
+    expected_outcome: feature_request
+    expected_target_app_slug: expense-approval-tracker
