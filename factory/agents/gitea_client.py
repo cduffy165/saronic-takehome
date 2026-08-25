@@ -50,7 +50,7 @@ def delete_repo(slug: str, settings: GiteaSettings) -> None:
         f"{settings.gitea_url}/api/v1/repos/{settings.gitea_username}/{slug}",
         headers=_auth_headers(settings),
         timeout=10.0,
-    )
+    ).raise_for_status()
 
 
 def _basic_auth_header(username: str, token: str) -> str:

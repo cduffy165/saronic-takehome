@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-factory}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-factory}
@@ -8,7 +8,13 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # 18+'s official image switched conventions: it now expects a single
+      # mount at /var/lib/postgresql and manages a version-named subdirectory
+      # under it itself (pg_ctlcluster-style), rather than the old
+      # /var/lib/postgresql/data mount — mounting the old path makes the
+      # image refuse to start, since it finds data sitting at the "wrong"
+      # location for how 18+ expects to manage upgrades.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-factory} -d ${POSTGRES_DB:-factory}"]
       interval: 5s
@@ -16,7 +22,7 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.7.1
     command: ["start-dev", "--import-realm"]
     environment:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
@@ -43,19 +49,18 @@ services:
       retries: 20
 
   gitea:
-    image: gitea/gitea:1.22
+    image: gitea/gitea:1.27.1-rootless
     environment:
       GITEA__database__DB_TYPE: sqlite3
       GITEA__security__INSTALL_LOCK: "true"
       GITEA__server__ROOT_URL: http://gitea:3000/
       GITEA__server__DISABLE_SSH: "true"
-      # A single POC "factory" account owns every generated app's repo — this
-      # is a service account for the pipeline, not a per-human-user identity;
-      # real per-user Gitea accounts are out of scope for this POC.
-      USER_UID: 1000
-      USER_GID: 1000
     volumes:
-      - gitea-data:/data
+      # The rootless image runs as a fixed "git" user (uid 1000) and keeps its
+      # data under /var/lib/gitea, not /data (that's the classic image's
+      # path) — mounting the wrong one silently loses all data on every
+      # container recreation instead of erroring.
+      - gitea-data:/var/lib/gitea
     ports:
       - "127.0.0.1:3000:3000"
     healthcheck:
