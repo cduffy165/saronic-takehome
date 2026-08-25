@@ -376,21 +376,34 @@ not estimated:
 
 **2. The work of building the factory itself — this coding session.** For most of the time this
 project was being built, the assistant writing this code was itself running against the same API
-key, so that usage counts against the same total. Claude Code's own session log gives an exact
-token count for that: 25 sessions, 1,087 model calls, about 505 million input tokens (98% of which
-were served from cache, not billed at full price) and about 620,000 output tokens. Pricing that
-usage at the rate for the model used for most of it (Sonnet 5) gives a total of roughly **$125 to
-$135**. That number is an estimate, not an exact figure like the ones above — a smaller number of
-calls early on used a more expensive model for planning, and one advisor call used a different
-model still, and the token log doesn't break spend down by model, so those calls push the true
-number somewhat above this baseline rather than below it.
+key, so that usage counts against the same total. Unlike the factory's own calls, this usage isn't
+recorded anywhere as a dollar figure — it had to be reconstructed from the raw per-message token
+counts in the coding session's own logs, across every session and sub-agent invocation from both
+days of this work (2026-08-24 and 2026-08-25), de-duplicated for the fact that a streamed message
+is written to the log multiple times as it arrives. Broken down by model, and priced at each
+model's published rate:
+
+| Model | Role | Calls | Cost |
+|---|---|---|---|
+| Sonnet 5 | main coding work | 977 | ~$128 |
+| Opus 4.7 | early planning, before this model list existed | 95 | ~$7 |
+| Opus 5 | main coding work (small slice) | 21 | ~$2 |
+| Fable 5 | advisor consultations | 3 | ~$9 |
+| Opus 5 | advisor consultations | 1 | ~$0.30 |
+| Sonnet 4.5 | legacy, negligible | 9 | ~$0.20 |
+
+That comes to **roughly $148**. Almost all of it is Sonnet 5 cache reads — the coding session
+itself is long and re-sends a lot of accumulated context, and even at a steep cache discount that
+volume adds up. The advisor consultations (a second opinion sought a handful of times during
+planning) used a pricier model per token but only ran a few times, so they're a small slice
+despite the higher rate.
 
 **Combined**, the total cost against this API key for the whole engagement — writing the factory,
-plus everything the factory itself spent doing its job — is roughly **$130 to $165**. The
+plus everything the factory itself spent doing its job — is roughly **$150 to $155**. The
 overwhelming majority of that is the cost of the coding work itself, not the system it produced.
-That's expected for a project this size worked interactively over one long session, but it's worth
-being explicit about: the "$3 to $6" figure is what this system costs to *operate*, and it is a
-small fraction of what it cost to *build*.
+That's expected for a project this size worked interactively over two days, but it's worth being
+explicit about: the "$3 to $6" figure is what this system costs to *operate*, and it is a small
+fraction of what it cost to *build*.
 
 **What would reduce this cost further:**
 - **Reuse identical prompt content across turns.** The text given to the planner describing the
