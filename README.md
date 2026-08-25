@@ -106,25 +106,20 @@ points where a mistake would be expensive or hard to undo.
   account id. Both are now handled in code instead: the blueprint id is filled in by the
   orchestrator and never asked of the model, and any named owner is checked against the app's real
   owners and swapped for a real one if it doesn't match.
-
-**Two separate approvals, not one.** Approving the plan (before anything is built) and approving
-the finished app (before it's permanently recorded) are different decisions with different
-consequences — one human check can't cover both.
-
-**Fixed limits.** The planner stops after 8 exchanges. Build and Review get one retry before
-reporting a clear failure. A numeric complexity limit routes anything too large to a person
-instead of building it anyway.
-
-**Network isolation that's checked, not just configured.** Generated containers run on a network
-with no route to Postgres or Keycloak, and an automated test confirms that from inside a real
-container rather than trusting the config. The Claude Agent SDK runs with settings that stop it
-from picking up a developer's own local tool configuration — an early bug let it do exactly that,
-at real cost (see the cost log below). Every API request is checked against a real login token.
-
-**Every stage was actually run, not tested against a stand-in.** A real Postgres, a real Keycloak
-login, a real Claude Agent SDK call, a real Docker build, a two-person feature-request walkthrough.
-Several of the bugs below — a git ownership error, a network gap, an owner-validation gap — were
-only found this way.
+- Approving the plan and approving the finished app are two separate decisions, not one — a bad
+  plan can be stopped before it spends money, and a working app can still be stopped before it's
+  permanently recorded.
+- The planner stops after 8 exchanges. Build and Review get one retry before reporting a clear
+  failure. A numeric complexity limit routes anything too large to a person instead of building it.
+- Generated containers run on a network with no route to Postgres or Keycloak, and an automated
+  test confirms that from inside a real container rather than trusting the config alone. The Claude
+  Agent SDK runs with settings that stop it from picking up a developer's own local tool
+  configuration — an early bug let it do exactly that, at real cost (see the cost log below). Every
+  API request is checked against a real login token.
+- Every stage was actually run against the real thing, not a stand-in: a real Postgres, a real
+  Keycloak login, a real Claude Agent SDK call, a real Docker build, a two-person feature-request
+  walkthrough. Several of the bugs below — a git ownership error, a network gap, an
+  owner-validation gap — were only found this way.
 
 ## Getting it running
 
@@ -152,7 +147,7 @@ If your browser doesn't resolve `auth.localhost` to `127.0.0.1` on its own (most
 `.localhost` is reserved to always mean the local machine), add `127.0.0.1 auth.localhost` to
 your hosts file.
 
-**What `make up` does** (`scripts/bootstrap.sh`):
+What `make up` does, step by step (`scripts/bootstrap.sh`):
 1. Copies `.env.example`/`.streamlit/secrets.toml.example` if they don't exist yet, and stops with
    a clear message if `ANTHROPIC_API_KEY` still looks like the placeholder.
 2. `docker compose up -d --build` — starts Postgres, Keycloak, Gitea, `api`, and `ui`.
@@ -170,17 +165,17 @@ Keycloak runs as a container with a small realm meant only for this project
 Streamlit's built-in login (`st.login`) is the identity provider; `app_owners.keycloak_sub` stores
 the real, verified subject identifier from that login.
 
-**Issuer hostname.** `KC_HOSTNAME=auth.localhost` makes the browser and the `ui` container reach
-Keycloak at the same address. Without it, the browser sees `localhost:8080` and `ui` sees
-`keycloak:8080` — different addresses fail login verification. `ui` resolves `auth.localhost`
-back to the host via Docker's `host-gateway`.
+`KC_HOSTNAME=auth.localhost` makes the browser and the `ui` container reach Keycloak at the same
+address — without it, the browser sees `localhost:8080` and `ui` sees `keycloak:8080`, and
+different addresses fail login verification. `ui` resolves `auth.localhost` back to the host via
+Docker's `host-gateway`.
 
-**API authentication.** `factory/api/auth.py` checks a real Keycloak token on every `/plans*` and
-`/builds*` request — signature against Keycloak's public keys, issuer and client checked, identity
-taken from the verified token rather than anything the caller supplies. Every endpoint also checks
-that a run belongs to the verified caller. The UI sends this token as `Authorization: Bearer
-<token>`; the eval scripts log in as real fixture users the same way (`evals/keycloak_auth.py`)
-rather than bypassing the check.
+`factory/api/auth.py` checks a real Keycloak token on every `/plans*` and `/builds*` request —
+signature against Keycloak's public keys, issuer and client checked, identity taken from the
+verified token rather than anything the caller supplies. Every endpoint also checks that a run
+belongs to the verified caller. The UI sends this token as `Authorization: Bearer <token>`; the
+eval scripts log in as real fixture users the same way (`evals/keycloak_auth.py`) rather than
+bypassing the check.
 
 ## Planning a new app
 
@@ -211,19 +206,18 @@ The `api` container runs as root (needed for Docker socket access), so generated
 to `HOST_UID`/`HOST_GID` (default `1000`/`1000`) once an attempt's outcome is known — after the git
 operations, not before, since git itself runs as root and refuses to touch a repo it doesn't own.
 
-**Gitea.** `generated_apps/<slug>` is the real, inspectable working tree Docker builds from and
-Build writes into; the permanent copy a person would clone lives in Gitea
-(`factory/agents/gitea_client.py`). The push happens last — only after the container builds and
-starts — not right after the commit: pushing earlier meant a retry (starting from clean git
-history) could push unrelated history onto a repo Gitea already had a commit on and get rejected
-before Build even had a chance to fix the real failure. It creates the repo if needed, then pushes
-over HTTP with a token used once and never written to the repo's own config or shown in an error.
+`generated_apps/<slug>` is the real, inspectable working tree Docker builds from and Build writes
+into; the permanent copy a person would clone lives in Gitea (`factory/agents/gitea_client.py`).
+The push happens last, only after the container builds and starts, not right after the commit —
+pushing earlier meant a retry (starting from clean git history) could push unrelated history onto
+a repo Gitea already had a commit on and get rejected before Build even had a chance to fix the
+real failure. It creates the repo if needed, then pushes over HTTP with a token used once and
+never written to the repo's own config or shown in an error.
 
-**Network isolation.** Generated containers run on `factory-generated-net`, with no route to
-Postgres or Keycloak; only `api` sits on both networks. `make eval-build` checks this directly from
-inside a running generated container — this exists because the network config was wrong once (see
-"Where a mistake
-was made, and how it was caught" below).
+Generated containers run on `factory-generated-net`, with no route to Postgres or Keycloak; only
+`api` sits on both networks. `make eval-build` checks this directly from inside a running generated
+container — this exists because the network config was wrong once (see "Where a mistake was made,
+and how it was caught" below).
 
 ## Registering the finished app
 
@@ -305,43 +299,41 @@ dependency, not dev-only, because Review calls its security rules as part of the
 
 ### Where a mistake was made, and how it was caught
 
-- **A security decision written into the docs as if it were already settled.** An early version's
-  docs described the API accepting a caller's claimed identity unchecked, calling it an acceptable
-  POC limitation — written by me, unchecked, then treated as settled fact later on. A security
-  review found this made every endpoint exploitable: anyone who could reach the API could claim to
-  be any user and trigger real builds. The real problem: a decision and its justification, written
-  by the same unchecked process, with no check in between. Fixed with real token verification on
-  every request.
-- **A secret nearly written to a file the wrong way.** Asked to put a real API key into `.env`, I
-  used a shell command instead of the file-editing tool to avoid printing the key — which backfired,
-  since this tool's file-change detection echoes the full contents of anything changed outside its
-  own editing tools. Caught immediately; the fixed rule now is that a real secret only ever goes in
-  through the editing tool, never a shell command. (The key itself never left this machine or the
-  provider that already holds it, so the exposure was limited to local session records — but it
-  couldn't be rotated afterward, which is exactly what the rule now prevents.)
-- **The Agent SDK picking up an entire unrelated setup.** Early Plan-session testing ran from my
-  own dev session instead of a container, so the SDK's subprocess inherited every tool, skill, and
-  plugin configured there — about 15,800 tokens and real money on one one-word test. Caught via a
-  leftover running process; fixed with a standing rule that this SDK only ever runs in a container.
-- **A batch of decisions shipped without being asked about first.** A manual review after an early
-  working pipeline found several: no automated test for the network config change, plain disk
-  instead of a real git server, an unconsidered Python version, model-only review with no separate
-  tool, a redundant naming convention, and comments written as quoted strings instead of plain
-  comments. None hidden, none raised for a decision either — all fixed in one pass, most asked
-  about first this time.
-- **A stale-data problem found without anyone pointing it out.** The check for whether a named
-  owner is real accepted anything already present in the owner records — including old test rows
-  from before real login-based identity existed. Testing turned up a case where one such row let a
-  wrong answer pass as real. Fixed by requiring an owner value to actually look like a verified
-  identity, not just be present in the table.
+- An early version's docs described the API accepting a caller's claimed identity unchecked,
+  calling it an acceptable POC limitation — written by me, unchecked, then treated as settled fact
+  later on. A security review found this made every endpoint exploitable: anyone who could reach
+  the API could claim to be any user and trigger real builds. The real problem was a decision and
+  its justification written by the same unchecked process, with no check in between. Fixed with
+  real token verification on every request.
+- Asked to put a real API key into `.env`, I used a shell command instead of the file-editing tool
+  to avoid printing the key — which backfired, since this tool's file-change detection echoes the
+  full contents of anything changed outside its own editing tools. Caught immediately; the fixed
+  rule now is that a real secret only ever goes in through the editing tool, never a shell command.
+  (The key itself never left this machine or the provider that already holds it, so the exposure
+  was limited to local session records — but it couldn't be rotated afterward, which is exactly
+  what the rule now prevents.)
+- Early Plan-session testing ran from my own dev session instead of a container, so the SDK's
+  subprocess inherited every tool, skill, and plugin configured there — about 15,800 tokens and
+  real money on one one-word test. Caught via a leftover running process; fixed with a standing
+  rule that this SDK only ever runs in a container.
+- A manual review after an early working pipeline found a batch of decisions shipped without being
+  asked about first: no automated test for the network config change, plain disk instead of a real
+  git server, an unconsidered Python version, model-only review with no separate tool, a redundant
+  naming convention, and comments written as quoted strings instead of plain comments. None hidden,
+  none raised for a decision either — all fixed in one pass, most asked about first this time.
+- The check for whether a named owner is real accepted anything already present in the owner
+  records — including old test rows from before real login-based identity existed. Testing turned
+  up a case where one such stale row let a wrong answer pass as real, with no one pointing it out.
+  Fixed by requiring an owner value to actually look like a verified identity, not just be present
+  in the table.
 
 ### Cost log
 
 Money was spent in two places against the same API key — they need to be counted separately before
 they can be added together.
 
-**1. The factory's own model calls — planning, building, reviewing generated apps.** Recorded in
-`cost_events` per model call, so these figures are exact, not estimated:
+The factory's own model calls — planning, building, reviewing generated apps — are recorded in
+`cost_events` per call, so these figures are exact, not estimated:
 - One plan-build-review cycle for a small app: typically **$0.15 to $0.35**, split across
   planning, build, and review — each stage uses a cheaper model for small sub-requests and a
   larger one for the main work.
@@ -354,44 +346,43 @@ they can be added together.
   after a bug fix — comes to roughly **$3 to $6**. One real request, start to finish, costs well
   under a dollar.
 
-**2. Building the factory itself — this coding session.** For most of this project's build time,
-the assistant writing the code ran against the same API key, so it counts toward the same total.
-Unlike the factory's own calls, none of this is recorded as a dollar figure — it's reconstructed
-from raw per-message token counts across every session and sub-agent from both build days
-(2026-08-24, 2026-08-25), de-duplicated for repeated streamed messages, then priced per model:
+Building the factory itself is the other side of it: for most of this project's build time, the
+assistant writing the code ran against the same API key, so that counts toward the same total.
+None of it is recorded as a dollar figure — it's reconstructed from raw per-message token counts
+across every session and sub-agent from both build days (2026-08-24, 2026-08-25), de-duplicated
+for repeated streamed messages, then priced per model:
 
-| Model      | Role                                           | Calls | Cost   |
-| ---------- | ---------------------------------------------- | ----- | ------ |
-| Sonnet 5   | main coding work                               | 1,058 | ~$133  |
-| Opus 4.7   | early planning, before this model list existed | 102   | ~$8    |
-| Opus 5     | main coding work (small slice)                 | 21    | ~$2    |
-| Fable 5    | advisor consultations                          | 3     | ~$9    |
-| Opus 5     | advisor consultations                          | 1     | ~$0.30 |
-| Sonnet 4.5 | legacy, negligible                             | 9     | ~$0.20 |
+| Model      | Role                                        | Calls | Cost   |
+| ---------- | -------------------------------------------- | ----- | ------ |
+| Sonnet 5   | main coding work                             | 1,270 | ~$153  |
+| Opus 4.7   | planning sessions and background subagents   | 154   | ~$11   |
+| Opus 5     | main coding work (small slice)               | 21    | ~$2    |
+| Fable 5    | advisor consultations                        | 3     | ~$9    |
+| Opus 5     | advisor consultations                        | 1     | ~$0.30 |
+| Sonnet 4.5 | legacy, negligible                           | 9     | ~$0.20 |
 
-That comes to **roughly $153**. Almost all of it is Sonnet 5 cache reads — a long session re-sends
-a lot of accumulated context, and even at a steep cache discount that volume adds up. The advisor
-consultations used a pricier model but ran only a handful of times, so they stay a small slice
-despite the rate. This figure grows with every further turn spent on this project — last
-reconstructed after the README rewrite and cleanup pass, not just the work up to registration.
+That comes to **roughly $176**. Almost all of it is Sonnet 5 cache reads — a long session re-sends
+a lot of accumulated context, and even at a steep cache discount that volume adds up. This figure
+grows with every further turn spent on this project — last reconstructed after the wording pass
+that tightened this README.
 
-**Combined**, the total cost against this key for the whole engagement is roughly **$155 to
-$160** — overwhelmingly the coding work itself, not the system it produced. Expected for a project
-worked interactively over two days, but worth being explicit: the "$3 to $6" figure is what this
-system costs to *operate*, a small fraction of what it cost to *build*.
+Combined, the total cost against this key for the whole engagement is roughly **$179 to $182** —
+overwhelmingly the coding work itself, not the system it produced. Expected for a project worked
+interactively over two days, but worth being explicit: the "$3 to $6" figure is what this system
+costs to *operate*, a small fraction of what it cost to *build*.
 
-**What would reduce this cost further:**
-- **Reuse identical prompt content across turns.** The planner's registered-apps/blueprint text is
-  rebuilt and resent every turn. Keeping it identical across turns — and conversations, until the
-  registry changes — would let prompt caching cover more of the request.
-- **Lower the per-stage turn limits.** Build allows up to 30 internal turns for four files. A
-  tighter cap costs nothing in practice and caps the worst case.
-- **Run evaluations in one process.** `eval-routing`, `eval-review`, and `eval-build` each start a
-  fresh connection today; running them back to back would carry caching over between them.
-- **Catch environment-isolation mistakes automatically.** The single most expensive mistake here
-  was an environment config problem, not a prompting one — a check that fails loudly if the SDK's
-  isolation settings are missing would catch the next one before it costs money.
-- **On the coding-session side**, almost all ~505 million input tokens were cache reads — the
-  caching working as intended, not waste — but the volume itself points at the real lever: fewer,
-  more targeted file reads and shorter agent turns per milestone. Scoping work into smaller,
-  separable sessions would be the single highest-leverage change.
+What would reduce this cost further:
+- The planner's registered-apps/blueprint text is rebuilt and resent every turn. Keeping it
+  identical across turns — and conversations, until the registry changes — would let prompt
+  caching cover more of the request.
+- Build allows up to 30 internal turns for four files. A tighter cap costs nothing in practice and
+  caps the worst case.
+- `eval-routing`, `eval-review`, and `eval-build` each start a fresh connection today; running them
+  back to back would carry caching over between them.
+- The single most expensive mistake here was an environment config problem, not a prompting one —
+  a check that fails loudly if the SDK's isolation settings are missing would catch the next one
+  before it costs money.
+- On the coding-session side, almost all ~505 million input tokens were cache reads — the caching
+  working as intended, not waste — but the volume itself points at the real lever: fewer, more
+  targeted file reads and shorter agent turns per milestone. Scoping work into smaller, separable
+  sessions would be the single highest-leverage change.
