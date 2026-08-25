@@ -13,8 +13,9 @@ import docker
 from docker import DockerClient
 
 PORT_RANGE = range(9000, 9100)
-CONTAINER_NAME_PREFIX = "factory-generated-"
-IMAGE_TAG_PREFIX = "factory-generated-"
+# Used for both the container name and the image tag — one container per
+# image, so a separate prefix for each would just be the same string twice.
+NAME_PREFIX = "factory-generated-"
 FACTORY_NETWORK = os.environ.get("FACTORY_NETWORK", "factory-generated-net")
 """Generated containers get their own network, isolated from postgres/keycloak
 — not the network the trusted services run on. Only the api service bridges
@@ -56,13 +57,13 @@ def get_internal_address(
     entirely. (Custom-network IPs live under NetworkSettings.Networks.<name>,
     not the flat NetworkSettings.IPAddress field — that field is only
     populated for the default "bridge" network.)"""
-    container = client.containers.get(f"{CONTAINER_NAME_PREFIX}{slug}")
+    container = client.containers.get(f"{NAME_PREFIX}{slug}")
     ip = container.attrs["NetworkSettings"]["Networks"][FACTORY_NETWORK]["IPAddress"]
     return f"{ip}:{container_internal_port}"
 
 
 def stop_and_remove(client: DockerClient, slug: str) -> None:
-    name = f"{CONTAINER_NAME_PREFIX}{slug}"
+    name = f"{NAME_PREFIX}{slug}"
     try:
         container = client.containers.get(name)
     except docker.errors.NotFound:
@@ -73,14 +74,14 @@ def stop_and_remove(client: DockerClient, slug: str) -> None:
 
 def build_and_run(client: DockerClient, app_dir: Path, slug: str, port: int) -> str:
     """Builds the generated app's image and runs it. Returns the container id."""
-    image_tag = f"{IMAGE_TAG_PREFIX}{slug}"
+    image_tag = f"{NAME_PREFIX}{slug}"
     client.images.build(path=str(app_dir), tag=image_tag, rm=True)
 
     stop_and_remove(client, slug)
 
     container = client.containers.run(
         image_tag,
-        name=f"{CONTAINER_NAME_PREFIX}{slug}",
+        name=f"{NAME_PREFIX}{slug}",
         ports={"8501/tcp": port},
         network=FACTORY_NETWORK,
         detach=True,

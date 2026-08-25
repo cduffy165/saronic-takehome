@@ -9,8 +9,8 @@ Severity = Literal["low", "medium", "high"]
 
 class ReviewFinding(BaseModel):
     severity: Severity
+    # Short label, e.g. "secrets", "injection", "missing_validation".
     category: str
-    """Short label, e.g. 'secrets', 'injection', 'missing_validation'."""
     description: str
 
 

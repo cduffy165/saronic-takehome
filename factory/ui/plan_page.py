@@ -110,7 +110,8 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
 def _render_build_review_result(result: dict, auth_headers: dict[str, str]) -> None:
     if result["success"]:
         st.success(f"Built and reviewed in {result['attempts']} attempt(s). {result['summary']}")
-        st.write(f"Repo: `{result['repo_path']}`")
+        st.write(f"Repo: {result['repo_url']}")
+        st.write(f"Local working tree: `{result['repo_path']}`")
         st.write(f"Running at: http://localhost:{result['container_port']}")
 
         if st.session_state.registered_app is None:

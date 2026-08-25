@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 @dataclass
 class ScriptedRequester:
+    # Keyword -> canned reply. Matched case-insensitively, first match wins.
     answers: dict[str, str]
-    """Keyword -> canned reply. Matched case-insensitively, first match wins."""
     fallback_reply: str
 
     def reply_to(self, planner_message: str) -> str:

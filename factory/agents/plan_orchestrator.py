@@ -97,15 +97,37 @@ async def _advance(
     )
 
 
+def _is_keycloak_sub(value: str) -> bool:
+    """A real Keycloak ``sub`` claim is always a UUID (Keycloak issues them,
+    never a client) — this is what lets us tell a genuine owner apart from
+    stale test-fixture rows or a model-hallucinated username, independent of
+    whatever happens to already be sitting in app_owners."""
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError):
+        return False
+    return True
+
+
 def _validated_owner_sub(app, owner_sub: str) -> str:
     """Named owners must be real — a model-supplied owner_sub for an overlap is
-    trusted only if it's actually an owner of the app it claims to overlap with;
-    otherwise substitute a real one so routing never names a fabricated person."""
-    known_subs = {o.keycloak_sub for o in app.owners}
-    if owner_sub in known_subs:
+    trusted only if it's both UUID-shaped and actually an owner of the app it
+    claims to overlap with; otherwise substitute a real one so routing never
+    names a fabricated (or, e.g., stale non-UUID test-fixture) person.
+
+    The UUID check matters even when owner_sub matches something already in
+    app.owners: legacy or hand-inserted rows can carry non-UUID values, and
+    trusting "it's in the table" alone would let that garbage validate a
+    garbage answer right back."""
+    known_subs = {o.keycloak_sub for o in app.owners if _is_keycloak_sub(o.keycloak_sub)}
+    if _is_keycloak_sub(owner_sub) and owner_sub in known_subs:
         return owner_sub
-    business_owner = next((o for o in app.owners if o.role == "business"), None)
-    fallback = business_owner or (app.owners[0] if app.owners else None)
+    business_owner = next(
+        (o for o in app.owners if o.role == "business" and _is_keycloak_sub(o.keycloak_sub)), None
+    )
+    fallback = business_owner or next(
+        (o for o in app.owners if _is_keycloak_sub(o.keycloak_sub)), None
+    )
     return fallback.keycloak_sub if fallback else owner_sub
 
 

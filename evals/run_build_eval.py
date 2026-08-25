@@ -12,6 +12,9 @@ import time
 import urllib.error
 import urllib.request
 
+import httpx
+from docker import DockerClient
+
 from factory.agents.build_review_orchestrator import (
     GENERATED_APPS_DIR,
     REQUIRED_FILES,
@@ -19,10 +22,12 @@ from factory.agents.build_review_orchestrator import (
     slugify,
 )
 from factory.agents.container_runtime import (
+    NAME_PREFIX,
     get_docker_client,
     get_internal_address,
     stop_and_remove,
 )
+from factory.agents.gitea_client import get_gitea_settings
 from factory.registry.db import get_session_factory
 from factory.registry.models import Run
 
@@ -38,6 +43,32 @@ GOLDEN_PLAN = {
         {"slug": "view_notes", "description": "View submitted notes."},
     ],
 }
+
+
+def _check_network_isolation(client: DockerClient, slug: str) -> tuple[bool, str]:
+    """A generated container must not reach postgres/keycloak, which run on a
+    separate network with no route from factory-generated-net. This is a live
+    check of the actual compose network topology, not a mock of the docker-py
+    call — the network fix only means something if this holds at runtime."""
+    container = client.containers.get(f"{NAME_PREFIX}{slug}")
+    probe = (
+        'python3 -c "import socket; socket.setdefaulttimeout(3); '
+        "socket.create_connection(('{host}', {port}))\""
+    )
+    for host, port in (("postgres", 5432), ("keycloak", 8080)):
+        exit_code, _ = container.exec_run(probe.format(host=host, port=port))
+        if exit_code == 0:
+            return False, f"ISOLATION FAILURE: generated container reached {host}:{port}"
+    return True, "generated container cannot reach postgres or keycloak, as expected"
+
+
+def _delete_gitea_repo(slug: str) -> None:
+    settings = get_gitea_settings()
+    httpx.delete(
+        f"{settings.gitea_url}/api/v1/repos/{settings.gitea_username}/{slug}",
+        headers={"Authorization": f"token {settings.gitea_token}"},
+        timeout=10.0,
+    )
 
 
 def _wait_for_health(address: str, timeout_s: float = 30.0) -> bool:
@@ -78,6 +109,12 @@ async def main() -> None:
             else:
                 details.append("all required files present")
 
+            if result.repo_url:
+                details.append(f"pushed to {result.repo_url}")
+            else:
+                ok = False
+                details.append("no repo_url after a successful build")
+
             client = get_docker_client()
             internal_address = get_internal_address(client, slug)
             if _wait_for_health(internal_address):
@@ -86,9 +123,14 @@ async def main() -> None:
                 ok = False
                 details.append(f"container did not respond at {internal_address}")
 
+            network_ok, network_detail = _check_network_isolation(client, slug)
+            ok = ok and network_ok
+            details.append(network_detail)
+
             stop_and_remove(client, slug)
-            client.images.remove(f"factory-generated-{slug}", force=True)
+            client.images.remove(f"{NAME_PREFIX}{slug}", force=True)
             shutil.rmtree(app_dir, ignore_errors=True)
+            _delete_gitea_repo(slug)
 
         build_review_run = session.get(Run, result.run_id)
         if build_review_run is not None:

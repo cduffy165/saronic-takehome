@@ -33,7 +33,10 @@ class App(Base):
     status: Mapped[str] = mapped_column(default="active")
     complexity_score: Mapped[int]
     manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # Local working tree / Docker build context — not the durable copy.
     repo_path: Mapped[str | None] = mapped_column(default=None)
+    # The Gitea clone URL — the durable, clonable location.
+    repo_url: Mapped[str | None] = mapped_column(default=None)
     container_port: Mapped[int | None] = mapped_column(default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(
@@ -59,8 +62,8 @@ class AppOwner(Base):
         ForeignKey("apps.id", ondelete="CASCADE"), primary_key=True
     )
     keycloak_sub: Mapped[str] = mapped_column(primary_key=True)
+    # One of "business" or "technical".
     role: Mapped[str]
-    """One of ``business`` or ``technical``."""
 
     app: Mapped[App] = relationship(back_populates="owners")
 
@@ -87,8 +90,8 @@ class FeatureRequest(Base):
     app_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("apps.id", ondelete="CASCADE"))
     requester_sub: Mapped[str]
     description: Mapped[str]
+    # One of "open", "picked_up", "resolved".
     status: Mapped[str] = mapped_column(default="open")
-    """One of ``open``, ``picked_up``, ``resolved``."""
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App] = relationship(back_populates="feature_requests")
@@ -101,34 +104,36 @@ class Run(Base):
     app_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("apps.id", ondelete="SET NULL"), default=None
     )
+    # One of "plan", "build_review".
     kind: Mapped[str]
-    """One of ``plan``, ``build_review``."""
+    # For "plan" runs: "proceed" | "route_to_human" | "feature_request" | "incomplete".
     outcome: Mapped[str | None] = mapped_column(default=None)
-    """For ``plan`` runs: ``proceed`` | ``route_to_human`` | ``feature_request`` | ``incomplete``."""
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
     review: Mapped[dict[str, Any] | None] = mapped_column(JSONB, default=None)
+    # Planner turn count, enforced against the cap independently of the SDK's own
+    # per-connection max_turns — each HTTP request resumes the session as a new
+    # SDK client, so the cap has to be tracked here to hold across requests.
     turns_used: Mapped[int] = mapped_column(default=0)
-    """Planner turn count, enforced against the cap independently of the SDK's own
-    per-connection ``max_turns`` — each HTTP request resumes the session as a new
-    SDK client, so the cap has to be tracked here to hold across requests."""
+    # Gate 1: set when a human approves a "proceed" plan, before Build spend.
     plan_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
-    """Gate 1: set when a human approves a ``proceed`` plan, before Build spend."""
     requester_sub: Mapped[str | None] = mapped_column(default=None)
+    # For "build_review" runs: the "plan" run whose approved outcome it builds.
     plan_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("runs.id", ondelete="SET NULL"), default=None
     )
-    """For ``build_review`` runs: the ``plan`` run whose approved outcome it builds."""
+    # For "build_review" runs: the generated app's local working tree, once Build succeeds.
     repo_path: Mapped[str | None] = mapped_column(default=None)
-    """For ``build_review`` runs: the generated app's directory, once Build succeeds."""
+    # For "build_review" runs: the Gitea clone URL, once the push succeeds.
+    repo_url: Mapped[str | None] = mapped_column(default=None)
+    # For "build_review" runs: the allocated host port, once the container is running.
     container_port: Mapped[int | None] = mapped_column(default=None)
-    """For ``build_review`` runs: the allocated host port, once the container is running."""
+    # Gate 2: set when a human approves a successful build for registration.
     build_approved_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
-    """Gate 2: set when a human approves a successful build for registration."""
+    # For "plan" runs started via feature-request pickup (M7): which request this
+    # run is fulfilling — an app can have more than one open request.
     feature_request_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("feature_requests.id", ondelete="SET NULL"), default=None
     )
-    """For ``plan`` runs started via feature-request pickup (M7): which request
-    this run is fulfilling — an app can have more than one open request."""
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     app: Mapped[App | None] = relationship(back_populates="runs", foreign_keys=[app_id])
@@ -145,8 +150,8 @@ class CostEvent(Base):
     app_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("apps.id", ondelete="SET NULL"), default=None
     )
+    # One of "plan", "build", "review".
     stage: Mapped[str]
-    """One of ``plan``, ``build``, ``review``."""
     model: Mapped[str]
     input_tokens: Mapped[int]
     cached_tokens: Mapped[int]

@@ -42,6 +42,28 @@ services:
       timeout: 5s
       retries: 20
 
+  gitea:
+    image: gitea/gitea:1.22
+    environment:
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__security__INSTALL_LOCK: "true"
+      GITEA__server__ROOT_URL: http://gitea:3000/
+      GITEA__server__DISABLE_SSH: "true"
+      # A single POC "factory" account owns every generated app's repo — this
+      # is a service account for the pipeline, not a per-human-user identity;
+      # real per-user Gitea accounts are out of scope for this POC.
+      USER_UID: 1000
+      USER_GID: 1000
+    volumes:
+      - gitea-data:/data
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   api:
     build:
       context: .
@@ -49,6 +71,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-factory}:${POSTGRES_PASSWORD:-factory}@postgres:5432/${POSTGRES_DB:-factory}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env — required to run the Plan session}
+      GITEA_URL: http://gitea:3000
+      GITEA_USERNAME: factory
+      # Not a hard-required var like ANTHROPIC_API_KEY above: generating this
+      # token requires gitea to be running first (`make gitea-init`), so
+      # requiring it up front would make it impossible to ever start gitea.
+      # Empty is fine until the first Build/Register — that's where a missing
+      # token surfaces as a real, actionable error.
+      GITEA_TOKEN: ${GITEA_TOKEN:-}
       # Generated containers are LLM-authored and only checked by a static
       # secrets scan + a tool-less LLM review — neither evaluates runtime
       # network behavior. They're attached to a *separate* network with no
@@ -64,9 +94,10 @@ services:
       # endpoint — same issuer-hostname reasoning as ui's mapping below.
       - "auth.localhost:host-gateway"
     volumes:
-      # Build writes generated_apps/<slug>/ here; bind-mounting (not a named
-      # volume) is what satisfies "code lands somewhere humans can edit it" —
-      # it's real files on the host, not trapped in the container.
+      # Build's working tree and the Docker build context — real files on the
+      # host (bind mount, not a named volume), so they're inspectable even
+      # before a push succeeds. The durable, clonable copy lives in Gitea;
+      # this directory is the local checkout the pipeline operates on.
       - ./generated_apps:/app/generated_apps
       # Deterministic build/run of generated apps talks to the HOST's docker
       # daemon over this socket (factory/agents/container_runtime.py) — an LLM
@@ -76,6 +107,8 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      gitea:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -112,6 +145,7 @@ services:
 
 volumes:
   postgres-data:
+  gitea-data:
 
 networks:
   default:

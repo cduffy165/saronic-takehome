@@ -29,6 +29,10 @@ def _render_apps(apps: Sequence[App]) -> None:
         with st.expander(f"{app.name}  ·  {app.status}"):
             st.write(app.purpose)
             st.caption(f"blueprint: {app.blueprint_id} · complexity score: {app.complexity_score}")
+            if app.repo_url:
+                st.write(f"Repo: {app.repo_url}")
+            if app.container_port:
+                st.write(f"Running at: http://localhost:{app.container_port}")
 
             st.subheader("Capabilities")
             for capability in app.capabilities:

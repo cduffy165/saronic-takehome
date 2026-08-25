@@ -23,19 +23,19 @@ class ProceedArgs(BaseModel):
     name: str
     purpose: str
     complexity_score: int = Field(ge=1, le=5)
+    # Per-dimension notes, e.g. data_sources / integrations / user_roles / capability_count.
     score_justification: dict[str, str]
-    """Per-dimension notes, e.g. data_sources / integrations / user_roles / capability_count."""
     capabilities: list[CapabilityDraft]
 
 
 class RouteToHumanArgs(BaseModel):
     reason: RouteReason
+    # Keycloak subject of the named owner the requester should talk to.
     owner_sub: str
-    """Keycloak subject of the named owner the requester should talk to."""
+    # Human-readable context, e.g. the owner's name/role and why they're named.
     owner_note: str
-    """Human-readable context, e.g. the owner's name/role and why they're named."""
+    # The recommendation shown to the requester. Recommends a conversation; never a refusal.
     message: str
-    """The recommendation shown to the requester. Recommends a conversation; never a refusal."""
     overlapping_app_slug: str | None = None
 
 
@@ -46,9 +46,9 @@ class FeatureRequestArgs(BaseModel):
 
 class ProceedOutcome(ProceedArgs):
     outcome: Literal["proceed"] = "proceed"
+    # Set by the orchestrator, not the model — there is exactly one blueprint in
+    # this POC, so asking the model to echo its id back just invites hallucination.
     blueprint_id: str
-    """Set by the orchestrator, not the model — there is exactly one blueprint in
-    this POC, so asking the model to echo its id back just invites hallucination."""
 
 
 class RouteToHumanOutcome(RouteToHumanArgs):
@@ -64,8 +64,8 @@ class IncompleteOutcome(BaseModel):
 
     outcome: Literal["incomplete"] = "incomplete"
     turns_used: int
+    # What the planner still needed to know, for a human to pick up.
     still_needed: str
-    """What the planner still needed to know, for a human to pick up."""
 
 
 PlanOutcome = ProceedOutcome | RouteToHumanOutcome | FeatureRequestOutcome | IncompleteOutcome

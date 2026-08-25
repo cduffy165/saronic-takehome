@@ -85,7 +85,7 @@ Requirements:
   external services, no real credentials of any kind, only placeholder values
   if any config is needed (e.g. read from environment variables with safe
   local defaults, never hardcode a real-looking secret).
-- Dockerfile: runs app.py with Streamlit, based on python:3.12-slim.
+- Dockerfile: runs app.py with Streamlit, based on python:3.13-slim.
 - README.md: what the app does and how to run it — you are writing this app's
   own documentation; nothing else produces it.
 - requirements.txt: pinned dependencies (at minimum streamlit).

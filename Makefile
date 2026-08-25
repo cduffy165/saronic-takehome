@@ -1,10 +1,22 @@
-.PHONY: seed migrate lint test eval
+.PHONY: seed migrate lint test eval gitea-init
 
 seed:
 	uv run python -m factory.registry.seed
 
 migrate:
 	uv run alembic upgrade head
+
+# One-time setup: creates the "factory" service account Gitea repos are pushed
+# under, and prints an access token to paste into .env as GITEA_TOKEN. Safe to
+# re-run — user creation is idempotent-ish (Gitea errors harmlessly if it
+# already exists); re-running just mints a fresh token.
+gitea-init:
+	docker compose exec --user git gitea gitea admin user create \
+		--username factory --password "$${GITEA_PASSWORD:-factory-dev-password}" \
+		--email factory@localhost --admin --must-change-password=false || true
+	docker compose exec --user git gitea gitea admin user generate-access-token \
+		--username factory --token-name factory-api-$$(date +%s) \
+		--scopes write:repository,write:user
 
 lint:
 	uv run ruff format .

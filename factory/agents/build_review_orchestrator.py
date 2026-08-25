@@ -24,8 +24,11 @@ from factory.agents.build_review_schema import ReviewFinding
 from factory.agents.build_session import run_build_turn
 from factory.agents.build_settings import get_build_settings
 from factory.agents.container_runtime import allocate_port, build_and_run, get_docker_client
+from factory.agents.gitea_client import get_gitea_settings
+from factory.agents.gitea_client import push as push_to_gitea
 from factory.agents.review_session import run_review_turn
-from factory.agents.secrets_scanner import scan_directory
+from factory.agents.secrets_scanner import scan_directory as scan_for_secrets
+from factory.agents.static_analysis import scan_directory as scan_statically
 from factory.registry.models import App, CostEvent, Run
 from factory.registry.slug import slugify
 
@@ -40,6 +43,7 @@ class BuildReviewView(BaseModel):
     findings: list[ReviewFinding]
     summary: str
     repo_path: str | None = None
+    repo_url: str | None = None
     container_port: int | None = None
 
 
@@ -231,7 +235,18 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
         # over again (observed live). So pickup stays root-owned until one of
         # the return points below.
 
-        gate_findings = _check_required_files(app_dir) + scan_directory(app_dir)
+        static_findings = scan_statically(app_dir)
+        # Only high-severity static-analysis findings block the pipeline —
+        # bandit/ruff's own severity grading already distinguishes "seems
+        # safe" (e.g. a literal shell command) from genuinely dangerous
+        # patterns (e.g. untrusted input in a shell command). Medium/low
+        # findings are quality signal for the human, not a build blocker.
+        blocking_static_findings = [f for f in static_findings if f.severity == "high"]
+        surfaced_static_findings = [f for f in static_findings if f.severity != "high"]
+
+        gate_findings = (
+            _check_required_files(app_dir) + scan_for_secrets(app_dir) + blocking_static_findings
+        )
         if gate_findings:
             all_findings = gate_findings
             feedback = _feedback_text(gate_findings)
@@ -267,19 +282,23 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
             # root-owned directory — chowning to the host user has to wait
             # until after git is done, or git's own dubious-ownership check
             # refuses to operate on a repo it doesn't own (observed live).
+            # The Gitea push goes here too, for the same reason: it's a git
+            # operation against the same root-owned working tree.
             if is_pickup:
                 _git_commit_change(app_dir, f"Add capability: {plan['name']}")
+                repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
                 repo_path, container_port = _dockerize(app_dir, slug, target_app.container_port)
             else:
                 _git_init_and_commit(app_dir)
+                repo_url = push_to_gitea(app_dir, slug, get_gitea_settings())
                 repo_path, container_port = _dockerize(app_dir, slug)
-        except Exception as exc:  # noqa: BLE001 - any docker/git failure is a retryable build failure
+        except Exception as exc:  # noqa: BLE001 - any docker/git/gitea failure is a retryable build failure
             detail = getattr(exc, "stderr", None) or str(exc)
             all_findings = [
                 ReviewFinding(
                     severity="high",
                     category="build_failed",
-                    description=f"git/docker step failed: {detail}",
+                    description=f"git/gitea/docker step failed: {detail}",
                 )
             ]
             feedback = _feedback_text(all_findings)
@@ -287,12 +306,15 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
         finally:
             _chown_to_host_user(app_dir, settings.host_uid, settings.host_gid)
 
+        final_findings = review_turn.result.findings + surfaced_static_findings
+
         build_review_run.outcome = "success"
         build_review_run.repo_path = repo_path
+        build_review_run.repo_url = repo_url
         build_review_run.container_port = container_port
         build_review_run.review = {
             "attempts": attempt,
-            "findings": [f.model_dump() for f in review_turn.result.findings],
+            "findings": [f.model_dump() for f in final_findings],
             "summary": review_turn.result.summary,
         }
         session.commit()
@@ -300,9 +322,10 @@ async def run_build_and_review(session: Session, plan_run: Run) -> BuildReviewVi
             run_id=build_review_run.id,
             success=True,
             attempts=attempt,
-            findings=review_turn.result.findings,
+            findings=final_findings,
             summary=review_turn.result.summary,
             repo_path=repo_path,
+            repo_url=repo_url,
             container_port=container_port,
         )
 

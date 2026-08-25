@@ -31,6 +31,7 @@ def register_app(session: Session, plan_run: Run, build_review_run: Run) -> App:
         complexity_score=plan["complexity_score"],
         manifest=plan,
         repo_path=build_review_run.repo_path,
+        repo_url=build_review_run.repo_url,
         container_port=build_review_run.container_port,
     )
     session.add(app)
