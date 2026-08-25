@@ -348,12 +348,12 @@ security rules) as part of the running system, not only for checking this projec
 
 ### Cost log
 
-There is no single running total kept anywhere in this project — cost records for test apps are
-deleted along with those apps during cleanup, and the database itself was reset several times
-over the course of this work. What follows is put together from specific figures actually seen
-during testing, not estimated after the fact.
+Money was spent in two different places against the same API key, and they need to be counted
+separately before they can be added together.
 
-**Specific figures actually observed:**
+**1. The factory's own model calls — planning, building, reviewing generated apps.** These are
+recorded in the `cost_events` table as they happen, per model call, so these figures are exact,
+not estimated:
 - One complete plan-build-review cycle for a small app (two capabilities, one attempt, no
   retries): typically **$0.15 to $0.35** in total, split roughly evenly across the planning step,
   the build step, and the review step. Each of these steps uses two different models — the SDK
@@ -369,16 +369,30 @@ during testing, not estimated after the fact.
   $0.25**. Each run of `make eval-build` (one full pipeline cycle, plus starting and checking a
   container) cost roughly **$0.15 to $0.35**. `make eval-review` is the cheapest of the three, one
   model call per test case, a few cents each.
+- Across every stage checked against the real system while it was being built, every automated
+  evaluation run, and every re-run after fixing a bug, this side of the ledger — the thing this
+  project actually builds — comes to roughly **$3 to $6** in total. A single real request going
+  through the whole process, start to finish, costs well under a dollar.
 
-**A rough total for all the work described in this document** — every stage checked against the
-real system when it was built, every automated evaluation run, every re-run after fixing a bug —
-is most likely in the range of **$3 to $6**, across roughly a dozen full or partial runs plus
-repeated evaluation runs. This project was checked against the real running system far more times
-than a single use of it would require, which is why the total is higher than the cost of any one
-run; a single real request going through this whole process, start to finish, costs well under a
-dollar.
+**2. The work of building the factory itself — this coding session.** For most of the time this
+project was being built, the assistant writing this code was itself running against the same API
+key, so that usage counts against the same total. Claude Code's own session log gives an exact
+token count for that: 25 sessions, 1,087 model calls, about 505 million input tokens (98% of which
+were served from cache, not billed at full price) and about 620,000 output tokens. Pricing that
+usage at the rate for the model used for most of it (Sonnet 5) gives a total of roughly **$125 to
+$135**. That number is an estimate, not an exact figure like the ones above — a smaller number of
+calls early on used a more expensive model for planning, and one advisor call used a different
+model still, and the token log doesn't break spend down by model, so those calls push the true
+number somewhat above this baseline rather than below it.
 
-**What could reduce this cost further:**
+**Combined**, the total cost against this API key for the whole engagement — writing the factory,
+plus everything the factory itself spent doing its job — is roughly **$130 to $165**. The
+overwhelming majority of that is the cost of the coding work itself, not the system it produced.
+That's expected for a project this size worked interactively over one long session, but it's worth
+being explicit about: the "$3 to $6" figure is what this system costs to *operate*, and it is a
+small fraction of what it cost to *build*.
+
+**What would reduce this cost further:**
 - **Reuse identical prompt content across turns.** The text given to the planner describing the
   registered apps and the blueprint rules is rebuilt and resent on every turn. Keeping that text
   identical across turns of the same conversation, and ideally across separate conversations until
@@ -392,7 +406,13 @@ dollar.
   model. Running them one after another inside the same process would let the model provider's
   own caching carry over between them instead of starting cold each time.
 - **Catch environment-isolation mistakes automatically.** The single most expensive mistake in
-  this project was not a prompting problem — it was an environment configuration problem. A check
-  that fails immediately and clearly if the SDK's isolation settings aren't in place, or if the
-  SDK's subprocess environment looks larger than expected, would catch the next version of this
-  mistake before it costs money instead of after.
+  this project's own operating cost was not a prompting problem — it was an environment
+  configuration problem. A check that fails immediately and clearly if the SDK's isolation
+  settings aren't in place, or if the SDK's subprocess environment looks larger than expected,
+  would catch the next version of this mistake before it costs money instead of after.
+- **On the coding-session side, the much larger cost:** almost all of the ~505 million input
+  tokens were cache reads, which is the caching system working as intended, not waste — but the
+  volume still points at a real lever: fewer, more targeted file reads and fewer long-running
+  agent turns per milestone would cut the number of times context gets rebuilt and re-sent. The
+  single highest-leverage change for a project like this would be scoping work into smaller,
+  more separable sessions so each one carries less accumulated history.
