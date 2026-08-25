@@ -450,21 +450,23 @@ model's published rate:
 
 | Model | Role | Calls | Cost |
 |---|---|---|---|
-| Sonnet 5 | main coding work | 977 | ~$128 |
-| Opus 4.7 | early planning, before this model list existed | 95 | ~$7 |
+| Sonnet 5 | main coding work | 1,058 | ~$133 |
+| Opus 4.7 | early planning, before this model list existed | 102 | ~$8 |
 | Opus 5 | main coding work (small slice) | 21 | ~$2 |
 | Fable 5 | advisor consultations | 3 | ~$9 |
 | Opus 5 | advisor consultations | 1 | ~$0.30 |
 | Sonnet 4.5 | legacy, negligible | 9 | ~$0.20 |
 
-That comes to **roughly $148**. Almost all of it is Sonnet 5 cache reads — the coding session
+That comes to **roughly $153**. Almost all of it is Sonnet 5 cache reads — the coding session
 itself is long and re-sends a lot of accumulated context, and even at a steep cache discount that
 volume adds up. The advisor consultations (a second opinion sought a handful of times during
 planning) used a pricier model per token but only ran a few times, so they're a small slice
-despite the higher rate.
+despite the higher rate. This figure grows with every subsequent turn spent on this project — it
+was last reconstructed after the README rewrite and cleanup pass that followed the original cost
+estimate, not just the work up to registration.
 
 **Combined**, the total cost against this API key for the whole engagement — writing the factory,
-plus everything the factory itself spent doing its job — is roughly **$150 to $155**. The
+plus everything the factory itself spent doing its job — is roughly **$155 to $160**. The
 overwhelming majority of that is the cost of the coding work itself, not the system it produced.
 That's expected for a project this size worked interactively over two days, but it's worth being
 explicit about: the "$3 to $6" figure is what this system costs to *operate*, and it is a small
