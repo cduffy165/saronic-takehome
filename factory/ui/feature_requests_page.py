@@ -10,11 +10,14 @@ import os
 import httpx
 import streamlit as st
 
+from factory.registry.identity import display_name
+
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 
 def render(access_token: str) -> None:
-    st.header("Feature Requests")
+    st.subheader("📬 Feature requests")
+    st.caption("Open requests against apps you own — pick one up to start planning the change.")
     auth_headers = {"Authorization": f"Bearer {access_token}"}
 
     with httpx.Client(base_url=API_BASE_URL, timeout=30.0, headers=auth_headers) as client:
@@ -23,14 +26,14 @@ def render(access_token: str) -> None:
     requests = response.json()
 
     if not requests:
-        st.info("No open feature requests against apps you own.")
+        st.info("Nothing waiting on you right now.", icon="✅")
         return
 
     for fr in requests:
-        with st.expander(f"{fr['app_slug']} — {fr['description'][:60]}"):
+        with st.expander(f"**{fr['app_slug']}** — {fr['description'][:60]}"):
             st.write(fr["description"])
-            st.caption(f"Requested by {fr['requester_sub']} · status: {fr['status']}")
-            if st.button("Pick up", key=f"pickup-{fr['id']}"):
+            st.caption(f"Requested by {display_name(fr['requester_sub'])}")
+            if st.button("Pick up", key=f"pickup-{fr['id']}", type="primary"):
                 _pick_up(fr, auth_headers)
 
 

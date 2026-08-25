@@ -6,11 +6,19 @@ import os
 import httpx
 import streamlit as st
 
+from factory.registry.identity import display_name
+
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+
+_ROUTE_REASONS = {
+    "overlaps_existing_app": "an app that already does this exists",
+    "scope_exceeds_blueprint": "this is bigger than what gets built automatically",
+    "no_fitting_blueprint": "this doesn't fit the one app pattern this factory builds",
+}
 
 
 def render(access_token: str) -> None:
-    st.header("Request an App")
+    st.subheader("📝 Request an app")
     auth_headers = {"Authorization": f"Bearer {access_token}"}
 
     if "plan_run_id" not in st.session_state:
@@ -74,7 +82,7 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
             st.write(f"- **{cap['slug']}** — {cap['description']}")
 
         if st.session_state.build_review_result is None:
-            if st.button("Approve — proceed to Build"):
+            if st.button("Approve — proceed to Build", type="primary"):
                 with (
                     st.spinner("Building and reviewing — this can take a minute..."),
                     httpx.Client(
@@ -92,7 +100,10 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
 
     elif kind == "route_to_human":
         st.warning(outcome["message"])
-        st.caption(f"Owner: {outcome['owner_note']} · reason: {outcome['reason']}")
+        reason = _ROUTE_REASONS.get(outcome["reason"], outcome["reason"])
+        st.caption(f"Talk to **{display_name(outcome['owner_sub'])}** — {reason}.")
+        if outcome.get("owner_note"):
+            st.caption(outcome["owner_note"])
 
     elif kind == "feature_request":
         st.info(
@@ -110,12 +121,11 @@ def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, s
 def _render_build_review_result(result: dict, auth_headers: dict[str, str]) -> None:
     if result["success"]:
         st.success(f"Built and reviewed in {result['attempts']} attempt(s). {result['summary']}")
-        st.write(f"Repo: {result['repo_url']}")
-        st.write(f"Local working tree: `{result['repo_path']}`")
-        st.write(f"Running at: http://localhost:{result['container_port']}")
+        st.link_button("Open the running app", f"http://localhost:{result['container_port']}")
+        st.caption(f"Source: {result['repo_url']}")
 
         if st.session_state.registered_app is None:
-            if st.button("Approve — Register"):
+            if st.button("Approve — Register", type="primary"):
                 with httpx.Client(
                     base_url=API_BASE_URL, timeout=30.0, headers=auth_headers
                 ) as client:
@@ -132,6 +142,11 @@ def _render_build_review_result(result: dict, auth_headers: dict[str, str]) -> N
         st.error(f"Failed after {result['attempts']} attempt(s): {result['summary']}")
 
     if result["findings"]:
-        st.write("Findings:")
+        severity_colors = {"high": "red", "medium": "orange", "low": "gray"}
+        st.markdown("**Findings**")
         for finding in result["findings"]:
-            st.write(f"- [{finding['severity']}] {finding['category']}: {finding['description']}")
+            color = severity_colors.get(finding["severity"], "gray")
+            category = finding["category"].replace("_", " ")
+            st.markdown(
+                f":{color}-badge[{finding['severity']}] {category} — {finding['description']}"
+            )

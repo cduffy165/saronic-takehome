@@ -1,0 +1,13 @@
+# A deliberate theme rather than Streamlit's default red-orange accent: this
+# is a record-keeping tool for who owns what and what it cost, so the palette
+# leans toward "calm, official register" instead of "alert, call to action."
+[theme]
+base = "light"
+primaryColor = "#3454D1"
+backgroundColor = "#FAFBFD"
+secondaryBackgroundColor = "#EEF1F8"
+textColor = "#1B2233"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false

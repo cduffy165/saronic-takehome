@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -9,6 +9,11 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY README.md ./
 COPY factory ./factory
+# The registry UI resolves Keycloak subs to display names from this fixture
+# realm export (factory/registry/identity.py) rather than calling Keycloak's
+# admin API on every page render.
+COPY keycloak ./keycloak
+COPY .streamlit/config.toml .streamlit/config.toml
 
 RUN uv sync --frozen --no-dev
 
