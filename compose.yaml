@@ -49,10 +49,20 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-factory}:${POSTGRES_PASSWORD:-factory}@postgres:5432/${POSTGRES_DB:-factory}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env — required to run the Plan session}
-      # Generated containers are attached to this network explicitly (not the
-      # docker daemon's plain default "bridge") so api can reach them by
-      # internal IP — see factory/agents/container_runtime.py.
-      FACTORY_NETWORK: factory-net
+      # Generated containers are LLM-authored and only checked by a static
+      # secrets scan + a tool-less LLM review — neither evaluates runtime
+      # network behavior. They're attached to a *separate* network with no
+      # route to postgres/keycloak, not the one those services run on;
+      # api sits on both so it can still reach a generated container by
+      # internal IP for health checks — see factory/agents/container_runtime.py.
+      FACTORY_NETWORK: factory-generated-net
+    networks:
+      - default
+      - generated-apps
+    extra_hosts:
+      # api needs to verify Keycloak-issued bearer tokens against the JWKS
+      # endpoint — same issuer-hostname reasoning as ui's mapping below.
+      - "auth.localhost:host-gateway"
     volumes:
       # Build writes generated_apps/<slug>/ here; bind-mounting (not a named
       # volume) is what satisfies "code lands somewhere humans can edit it" —
@@ -105,7 +115,10 @@ volumes:
 
 networks:
   default:
-    # Named explicitly (rather than the project-name-derived default) so
-    # factory/agents/container_runtime.py can attach generated containers to a
-    # stable, known network name.
+    # Named explicitly (rather than the project-name-derived default) for a
+    # stable, known name. Trusted services only — postgres, keycloak, api, ui.
     name: factory-net
+  generated-apps:
+    # Untrusted, LLM-generated containers live here, isolated from postgres
+    # and keycloak. Only api bridges both networks.
+    name: factory-generated-net

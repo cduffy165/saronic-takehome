@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 import yaml
 
+from evals.keycloak_auth import get_access_token
 from evals.scripted_requester import ScriptedRequester
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
@@ -21,10 +22,9 @@ MAX_TURNS = 8
 
 
 def run_case(client: httpx.Client, case: dict[str, Any]) -> dict[str, Any]:
-    response = client.post(
-        "/plans",
-        json={"requester_sub": case["requester_sub"], "message": case["opening_message"]},
-    )
+    headers = {"Authorization": f"Bearer {get_access_token(case['requester_sub'])}"}
+
+    response = client.post("/plans", json={"message": case["opening_message"]}, headers=headers)
     response.raise_for_status()
     turn = response.json()
 
@@ -33,7 +33,9 @@ def run_case(client: httpx.Client, case: dict[str, Any]) -> dict[str, Any]:
     )
     while not turn["done"] and turn["turns_used"] < MAX_TURNS:
         reply = requester.reply_to(turn["message"])
-        response = client.post(f"/plans/{turn['run_id']}/messages", json={"message": reply})
+        response = client.post(
+            f"/plans/{turn['run_id']}/messages", json={"message": reply}, headers=headers
+        )
         response.raise_for_status()
         turn = response.json()
 

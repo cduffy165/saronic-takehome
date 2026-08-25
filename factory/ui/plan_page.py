@@ -8,8 +8,9 @@ import streamlit as st
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 
 
-def render(current_user_sub: str) -> None:
+def render(access_token: str) -> None:
     st.header("Request an App")
+    auth_headers = {"Authorization": f"Bearer {access_token}"}
 
     if "plan_run_id" not in st.session_state:
         st.session_state.plan_run_id = None
@@ -22,7 +23,7 @@ def render(current_user_sub: str) -> None:
             st.write(turn["content"])
 
     if st.session_state.plan_done:
-        _render_outcome(st.session_state.plan_outcome, st.session_state.plan_run_id)
+        _render_outcome(st.session_state.plan_outcome, st.session_state.plan_run_id, auth_headers)
         if st.button("Start a new request"):
             st.session_state.plan_run_id = None
             st.session_state.plan_transcript = []
@@ -36,11 +37,9 @@ def render(current_user_sub: str) -> None:
         return
 
     st.session_state.plan_transcript.append({"role": "user", "content": message})
-    with httpx.Client(base_url=API_BASE_URL, timeout=120.0) as client:
+    with httpx.Client(base_url=API_BASE_URL, timeout=120.0, headers=auth_headers) as client:
         if st.session_state.plan_run_id is None:
-            response = client.post(
-                "/plans", json={"requester_sub": current_user_sub, "message": message}
-            )
+            response = client.post("/plans", json={"message": message})
         else:
             response = client.post(
                 f"/plans/{st.session_state.plan_run_id}/messages", json={"message": message}
@@ -55,7 +54,7 @@ def render(current_user_sub: str) -> None:
     st.rerun()
 
 
-def _render_outcome(outcome: dict | None, run_id: str) -> None:
+def _render_outcome(outcome: dict | None, run_id: str, auth_headers: dict[str, str]) -> None:
     if outcome is None:
         return
 
@@ -71,7 +70,7 @@ def _render_outcome(outcome: dict | None, run_id: str) -> None:
         if st.button("Approve — proceed to Build"):
             with (
                 st.spinner("Building and reviewing — this can take a minute..."),
-                httpx.Client(base_url=API_BASE_URL, timeout=300.0) as client,
+                httpx.Client(base_url=API_BASE_URL, timeout=300.0, headers=auth_headers) as client,
             ):
                 approve_response = client.post(f"/plans/{run_id}/approve")
             if approve_response.status_code == 200:

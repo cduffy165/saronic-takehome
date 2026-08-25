@@ -49,10 +49,23 @@ reached it at `keycloak:8080`, and OIDC discovery/issuer validation would fail o
 The `ui` container resolves `auth.localhost` to the host machine via Docker's `host-gateway`
 (`extra_hosts` in `compose.yaml`), landing back on Keycloak's published port.
 
-**Trust boundary.** `st.user` exposes the identity token's *claims*, not a verifiable access
-token. Any future forwarding from the UI to the API is therefore forwarded claims that the API
-trusts, not a token the API independently verifies — acceptable for this POC, not for
-production.
+**API authentication.** `factory/api/auth.py` verifies a real Keycloak-issued bearer token on
+every `/plans*` request — signature checked against Keycloak's JWKS, issuer and client (`azp`)
+checked against expected values — and derives the caller's identity from the verified `sub`
+claim. The API never trusts a client-supplied identity field. Each endpoint also enforces that a
+plan run's `requester_sub` matches the verified caller before allowing continuation, reads, or
+approval (403 otherwise). The UI exposes the access token via `expose_tokens = ["access"]` in
+`secrets.toml` and forwards it as `Authorization: Bearer <token>` on every API call; evals
+authenticate the same way, via `evals/keycloak_auth.py` fetching a real token per fixture user
+rather than bypassing the check.
+
+An earlier version of this README described unauthenticated forwarding of `st.user`'s claims as
+an "acceptable POC trust boundary" — that was an unreviewed unilateral call, not a checked
+decision, and a security review later flagged the resulting endpoints as exploitable (any
+network peer reaching the API's port could impersonate any user and trigger real Docker builds
+on the host). It's fixed now; the API's port is still published on all interfaces rather than
+loopback-only like `postgres`, which remains a narrower, separate gap worth closing before any
+non-local deployment.
 
 ## Plan session
 
@@ -90,6 +103,16 @@ chowned back to `HOST_UID`/`HOST_GID` (default `1000`/`1000`) once each attempt'
 known — override in `.env` if your host user's `id -u`/`id -g` differ. The chown has to happen
 *after* `git init`/`commit`, not before: git itself runs as root, and refuses to operate on a
 repo it doesn't own (observed live) if the directory is chowned to the host user first.
+
+**Network isolation.** Generated app code is LLM-authored from a business user's request, and
+the only gates before it runs are a static secrets scan and a tool-less LLM review — neither
+evaluates runtime network behavior. A security review flagged that generated containers were
+originally placed on the same Docker network as `postgres` and `keycloak`, reachable by DNS name
+with default dev credentials — a code-execution path with a real lateral-movement route into the
+factory's own data store. Generated containers now run on a separate network
+(`factory-generated-net`) with no route to `postgres`/`keycloak`; only `api` bridges both
+networks, which is what lets it still reach a generated container by internal IP for health
+checks. Verified live: a generated container cannot resolve `postgres` by DNS name at all.
 
 ## Evals
 

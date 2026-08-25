@@ -15,7 +15,10 @@ from docker import DockerClient
 PORT_RANGE = range(9000, 9100)
 CONTAINER_NAME_PREFIX = "factory-generated-"
 IMAGE_TAG_PREFIX = "factory-generated-"
-FACTORY_NETWORK = os.environ.get("FACTORY_NETWORK", "factory-net")
+FACTORY_NETWORK = os.environ.get("FACTORY_NETWORK", "factory-generated-net")
+"""Generated containers get their own network, isolated from postgres/keycloak
+— not the network the trusted services run on. Only the api service bridges
+both (see compose.yaml)."""
 
 
 def get_docker_client() -> DockerClient:

@@ -20,6 +20,6 @@ with st.sidebar:
     page = st.radio("View", ["Request an App", "Registry"])
 
 if page == "Request an App":
-    plan_page.render(current_user_sub=st.user.sub)
+    plan_page.render(access_token=st.user.tokens.access)
 else:
     registry_page.render(current_user_sub=st.user.sub)
