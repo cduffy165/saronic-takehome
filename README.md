@@ -279,7 +279,16 @@ dependency, not dev-only, because Review calls its security rules as part of the
 
 ## What to build next
 
-<!-- left intentionally empty -->
+- Step this up from being a POC to an actual platform/service
+  - Make this deployable (most likely onto AWS or another cloud platform)
+  - Rebuild the frontend, I want to move to using nextjs
+- Build additional blueprints and options for applications
+  - New deployment destinations (deploy into K8s clusters, ECS, etc.)
+  - Providing the ability to build blueprint elements using for example TF Modules or Helm chart templates
+- Expand the complexity of the registry
+  - Track deployed infrastructure spend
+- Add in an operations agent to the factory to monitor deployed applications and notify technical and business owners of outages as well as take initial steps to recover applications from simple failures
+- Build solid documentation functionality for built applications that is indexable and usable by the app factory agents themselves as well as users
 
 ## Decisions, mistakes, and cost
 
