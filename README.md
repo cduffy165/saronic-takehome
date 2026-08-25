@@ -2,19 +2,25 @@
 
 ## What this is
 
-A platform where a business user describes an internal app in plain language, and the system
-plans it, builds it, reviews it, and registers it — with a named owner and a recorded cost —
-without an engineer writing any code. The user talks to an interactive planner. A human approves
-the plan before anything is built, and approves the finished app before it's registered. The
-result is a small, running application and a permanent, searchable record of what exists, what
-it does, what it cost, and who is responsible for it.
+Say someone in operations needs a small internal tool — a way to log equipment maintenance and
+see what's overdue, for example. Today that turns into an ad-hoc spreadsheet, a favor from
+whichever engineer has a free afternoon, or a ticket that sits in a queue. Whatever gets built,
+nobody ends up clearly owning it, nobody tracks what it cost, and a year later nobody remembers
+why it exists or whether it's safe to turn off.
 
-The point of this project is the process and the record it produces, not how sophisticated the
-generated apps are. Generated apps are deliberately small (one pattern: a Streamlit app running
-in Docker). The engineering effort went into planning, building, reviewing, gating, and
-accounting for those apps safely and repeatably.
+This project handles that request differently. The person who needs the tool describes what they
+want, in plain English, to an interactive planner — no engineer required. A human reviews and
+approves the plan before anything is built. The system then writes the app, checks it for security
+and quality problems, and — after a second human approval — registers it: a named, real owner; an
+itemized cost; and a plain description of what it does, recorded permanently and visible to
+anyone in the organization.
 
-## Why an organization would want this
+The applications this produces are deliberately simple — small Streamlit apps running in Docker.
+That's on purpose: the interesting engineering here isn't in what gets built, it's in making the
+process of requesting, building, checking, and accounting for these small internal tools something
+both the people asking for them and the people responsible for them can actually trust.
+
+## Why this is worth building
 
 Most organizations end up with small internal tools nobody can account for: a spreadsheet
 replacement a manager had built two years ago, a script someone in operations still runs, an app
@@ -42,21 +48,79 @@ the record the system produces is accurate.
 
 ## Architecture
 
-```
-Plan (interactive session)                    Build + Review (one orchestrator, two subagents)
-  └─ proceed / route_to_human / feature_request  └─ write files → gate → review → retry (×1)
-       │ [HUMAN GATE 1: approve, before spend]         │ [HUMAN GATE 2: approve, before registration]
-       ▼                                                ▼
-  Register (plain code, no LLM) — creates the App row, owner, capabilities; records cost
+Two different pictures answer two different questions: what infrastructure runs the whole
+platform, and what happens to one request as it moves through the factory.
+
+### The platform
+
+```mermaid
+flowchart LR
+    user(["Business user"])
+
+    subgraph trusted["factory-net (trusted)"]
+        ui["ui — Streamlit"]
+        api["api — FastAPI"]
+        db[("Postgres<br/>registry")]
+        kc["Keycloak<br/>identity"]
+        gitea["Gitea<br/>git server"]
+    end
+
+    subgraph untrusted["factory-generated-net (untrusted)"]
+        app1["Generated app<br/>container"]
+        app2["Generated app<br/>container"]
+    end
+
+    user -->|"logs in, requests an app"| ui
+    ui -->|"forwarded, verified identity"| api
+    api --> db
+    api --> kc
+    api -->|"pushes finished code"| gitea
+    api -->|"builds and starts,<br/>via the Docker socket"| app1
+    api -->|"builds and starts,<br/>via the Docker socket"| app2
 ```
 
-The Docker Compose stack has five services: **Postgres** (the registry database), **Keycloak**
-(identity), **Gitea** (a self-hosted git server for generated apps), **api** (FastAPI, runs the
-pipeline), and **ui** (Streamlit). Generated apps run in their own containers on a separate
-Docker network, built and started by ordinary code — never by the model — against the host's
-Docker socket.
+Five services, two Docker networks. `api` is the only service connected to both — it's what
+builds and starts each generated app's container over the same Docker socket the rest of the
+stack runs on, and it's the only bridge between the trusted infrastructure (Postgres, Keycloak,
+Gitea) and the untrusted generated apps. A generated app has no network route to Postgres or
+Keycloak at all; that's enforced by which network its container sits on, not by a setting inside
+the app that the generated code could get wrong.
 
-### How reliability was built in
+### The pipeline
+
+```mermaid
+flowchart LR
+    request(["Request,<br/>in plain language"])
+    plan["Plan session<br/>interactive planner"]
+    gate1{{"Gate 1<br/>human approves the plan"}}
+    build["Build subagent<br/>writes files only"]
+    checks[/"Secrets scan +<br/>static analysis"/]
+    review["Review subagent<br/>grades the code"]
+    gate2{{"Gate 2<br/>human approves the app"}}
+    register["Register<br/>plain code, no model"]
+    owner(["Routed to the existing<br/>app's owner"])
+    fr(["Filed as a feature request<br/>against an existing app"])
+
+    request --> plan
+    plan -->|"fits the blueprint,<br/>nothing like it exists"| gate1
+    plan -->|"overlaps an existing<br/>app, or too complex"| owner
+    plan -->|"a change to an<br/>existing app"| fr
+    gate1 --> build
+    build --> checks
+    checks -->|"passes"| review
+    checks -->|"fails"| build
+    review -->|"fails, one retry"| build
+    review -->|"passes"| gate2
+    gate2 --> register
+```
+
+Every request ends in exactly one of three outcomes from the planner: it gets built, it's routed
+to the person who already owns something like it, or it's filed as a request against an app that
+already exists. Only the first outcome reaches Build and Review. Both gates are a real human
+decision, not a formality — Gate 1 happens before a build spends any money, Gate 2 happens before
+anything is permanently recorded.
+
+### How this stays reliable
 
 The reliability of this system doesn't come from more careful prompting. It comes from moving as
 many checks as possible out of the model's judgment and into code that runs before the model acts,
@@ -100,7 +164,7 @@ with no route to Postgres or Keycloak. This is checked automatically: one of the
 attempts a network connection from inside a real generated container to those services and
 confirms it fails, rather than only trusting that the configuration is correct. The Claude Agent
 SDK itself is run with settings that stop it from picking up a developer's own local tool
-configuration — an early bug let it do exactly that, at real cost (see the cost section below).
+configuration — an early bug let it do exactly that, at real cost (see the cost log below).
 Every API request is checked against a real, verified login token, so the system's own endpoints
 can't be used by someone pretending to be another user.
 
@@ -108,11 +172,11 @@ can't be used by someone pretending to be another user.
 checked against the real thing it depends on — a real Postgres database, a real Keycloak login, a
 real call to the Claude Agent SDK, a real Docker build and a real running container, a full
 two-person walkthrough of one user filing a request against another user's app. Several of the
-bugs listed in the decision log below (a git ownership error, a network configuration gap, an
+bugs listed below (a git ownership error, a network configuration gap, an
 owner-validation gap) were only found because of this; none of them would have been caught by
 tests that stood in for the real systems instead of using them.
 
-## Running
+## Getting it running
 
 ```
 cp .env.example .env                                          # fill in ANTHROPIC_API_KEY
@@ -146,7 +210,7 @@ impossible to ever start Gitea in the first place. It's fine for it to be empty 
 build; a missing token then causes a clear, specific error at that point instead of blocking every
 other service from starting.
 
-## Identity
+## Identity and login
 
 Keycloak runs as a container with a small realm meant only for this project
 (`keycloak/realm-export.json`, fixture users only — each password matches its username).
@@ -169,7 +233,7 @@ The UI reads the login token via `expose_tokens = ["access"]` and sends it as
 way, using `evals/keycloak_auth.py` to get a real token for each fixture user rather than
 bypassing the check.
 
-## Plan session
+## Planning a new app
 
 `factory/agents/plan_session.py` calls the real Claude Agent SDK, which runs the actual Node-based
 `claude` command-line tool as a subprocess — the `api` image installs Node and
@@ -183,7 +247,7 @@ the planner is enforced by this project's own code (`Run.turns_used`), separatel
 own per-connection turn limit, because each HTTP request starts a new SDK connection that resumes
 the same underlying session.
 
-## Build + Review
+## Building and reviewing
 
 `factory/agents/build_session.py` only writes files — it has no shell access and no network
 access, and every file write is checked against the app's own directory before it's allowed.
@@ -213,9 +277,10 @@ push and never written to the repository's own configuration file or shown in an
 **Network isolation.** Generated containers run on `factory-generated-net`, which has no route to
 Postgres or Keycloak; only `api` is connected to both networks. `make eval-build` checks this
 directly by attempting a connection from inside the running generated container and confirming it
-fails — this check exists because the network configuration was wrong once (see the decision log).
+fails — this check exists because the network configuration was wrong once (see "Where a mistake
+was made, and how it was caught" below).
 
-## Register
+## Registering the finished app
 
 The second approval (`POST /builds/{id}/approve`) is the only place an `App` row gets created —
 `factory/registry/register.py` is ordinary code, not something the model runs. It creates the
@@ -223,7 +288,7 @@ app, an `AppOwner` record (the original requester, recorded as the `business` ow
 `Capability` record for each capability the plan declared, and updates the plan run, the
 build/review run, and their `CostEvent` records with the new app's identifier.
 
-## Feature request pickup
+## Picking up a feature request
 
 An app owner sees open requests against apps they own at `GET /feature-requests`. Picking one up
 starts a normal Plan session using the request's description as the opening message, with
@@ -238,7 +303,7 @@ Known gap, not yet fixed: if the pipeline fails after the first approval has alr
 the plan is left in an approved-but-unbuilt state with no way to retry it through the API — this
 needs either a way to safely repeat the approval or a separate retry action.
 
-## Evals
+## Running the evaluations
 
 These call a real model and cost real money — run them deliberately, never as part of
 `make test`:
@@ -255,7 +320,7 @@ adding more is mechanical. Each case uses a `ScriptedRequester` — canned answe
 start to finish and removes its own container, image, Gitea repository, generated directory, and
 database rows afterward, whether it passed or failed.
 
-## Development
+## Developing on this project
 
 ```
 uv sync
@@ -281,7 +346,7 @@ security rules) as part of the running system, not only for checking this projec
 
 <!-- left intentionally empty -->
 
-## Decision and cost log
+## Decisions, mistakes, and cost
 
 ### Key decisions
 
